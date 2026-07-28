@@ -1,0 +1,12 @@
+[
+  {
+    "question": "Sample Mock Question",
+    "options": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "answer": 1
+  }
+]
