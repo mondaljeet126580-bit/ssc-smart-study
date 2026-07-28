@@ -1,1 +1,87 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSC Smart Study - Study</title>
+
+<link rel="stylesheet" href="../css/main.css">
+</head>
+
+<body>
+
+<header class="top-header">
+    <h1>SSC Smart Study</h1>
+    <p>Select a Subject</p>
+</header>
+
+<div class="container">
+
+<div class="menu-grid">
+
+<div class="card" onclick="openSubject('General Knowledge')">
+<div class="icon">📚</div>
+<h3>General Knowledge</h3>
+<p>History, Geography, Polity & More</p>
+</div>
+
+<div class="card" onclick="openSubject('General Science')">
+<div class="icon">🔬</div>
+<h3>General Science</h3>
+<p>Physics, Chemistry & Biology</p>
+</div>
+
+<div class="card" onclick="openSubject('Mathematics')">
+<div class="icon">➗</div>
+<h3>Mathematics</h3>
+<p>Arithmetic, Algebra, Geometry</p>
+</div>
+
+<div class="card" onclick="openSubject('Reasoning')">
+<div class="icon">🧠</div>
+<h3>Reasoning</h3>
+<p>Verbal & Non Verbal</p>
+</div>
+
+<div class="card" onclick="openSubject('Current Affairs')">
+<div class="icon">📰</div>
+<h3>Current Affairs</h3>
+<p>Daily & Monthly Updates</p>
+</div>
+
+<div class="card" onclick="openSubject('Previous Year')">
+<div class="icon">📄</div>
+<h3>Previous Year</h3>
+<p>SSC Previous Year Questions</p>
+</div>
+
+</div>
+
+</div>
+
+<nav class="bottom-nav">
+
+<button onclick="location.href='../index.html'">
+🏠<br>Home
+</button>
+
+<button>
+📚<br>Study
+</button>
+
+</nav>
+
+<script>
+
+function openSubject(subject){
+
+window.location.href =
+"subject.html?name="+encodeURIComponent(subject);
+
+}
+
+</script>
+
+</body>
+</html>
