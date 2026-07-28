@@ -1,64 +1,73 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Subject</title>
+    <title>Subject Details</title>
 
     <link rel="stylesheet" href="../css/main.css">
 </head>
 
 <body>
 
-<header class="top-header">
+    <header class="top-header">
+        <h1>📚 Subject Details</h1>
+        <p>SSC Smart Study</p>
+    </header>
 
-    <h1>📚 Subject Details</h1>
+    <div class="container">
 
-    <p>SSC Smart Study</p>
-
-</header>
-
-<div class="container">
-
-    <div class="welcome-card">
-
-        <h2 id="subjectName">Subject</h2>
-
-        <p>Select any chapter to start learning.</p>
-
-    </div>
-
-    <div class="menu-grid">
-
-        <div class="card">
-            <div class="icon">📖</div>
-            <h3>Notes</h3>
-            <p>Study Notes</p>
+        <div class="welcome-card">
+            <h2 id="subjectName">Subject</h2>
+            <p>Select any chapter to start learning.</p>
         </div>
 
-        <div class="card">
-            <div class="icon">📝</div>
-            <h3>MCQ Practice</h3>
-            <p>Practice Questions</p>
-        </div>
+        <div class="menu-grid">
 
-        <div class="card">
-            <div class="icon">🎯</div>
-            <h3>Mock Test</h3>
-            <p>Subject Test</p>
-        </div>
+            <div class="card">
+                <div class="icon">📖</div>
+                <h3>Notes</h3>
+                <p>Study Notes</p>
+            </div>
 
-        <div class="card">
-            <div class="icon">🏠</div>
-            <h3>Home</h3>
-            <p>Back to Home</p>
+            <div class="card">
+                <div class="icon">📝</div>
+                <h3>MCQ Practice</h3>
+                <p>Practice Questions</p>
+            </div>
+
+            <div class="card">
+                <div class="icon">🎯</div>
+                <h3>Mock Test</h3>
+                <p>Subject Test</p>
+            </div>
+
+            <div class="card">
+                <div class="icon">🏠</div>
+                <h3>Home</h3>
+                <p>Back to Home</p>
+            </div>
+
         </div>
 
     </div>
 
-</div>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const subject = params.get("name");
+
+        if (subject) {
+            document.getElementById("subjectName").textContent = subject;
+        }
+
+        const homeCard = document.querySelectorAll(".card")[3];
+
+        homeCard.addEventListener("click", () => {
+            window.location.href = "../index.html";
+        });
+    </script>
 
 </body>
+
 </html>
