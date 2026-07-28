@@ -6,13 +6,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     let subjects = [];
 
     async function loadSubjects() {
-        try {
-            const response = await fetch("data/subjects.json");
-            subjects = await response.json();
-            displaySubjects(subjects);
-        } catch (error) {
-            console.log("Error loading subjects:", error);
-        }
+        const response = await fetch("data/subjects.json");
+        subjects = await response.json();
+        displaySubjects(subjects);
     }
 
     function displaySubjects(list) {
@@ -21,12 +17,23 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         list.forEach(subject => {
 
-            menuGrid.innerHTML += `
-                <div class="card">
-                    <div class="icon">${subject.icon}</div>
-                    <h3>${subject.name}</h3>
-                </div>
+            const card = document.createElement("div");
+            card.className = "card";
+
+            card.innerHTML = `
+                <div class="icon">${subject.icon}</div>
+                <h3>${subject.name}</h3>
             `;
+
+            card.onclick = () => {
+
+                window.location.href =
+                    "pages/subject.html?name=" +
+                    encodeURIComponent(subject.name);
+
+            };
+
+            menuGrid.appendChild(card);
 
         });
 
