@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>SSC Smart Study - Mock Test</title>
+
+<link rel="stylesheet" href="../css/main.css">
+
+</head>
+
+<body>
+
+<header class="top-header">
+
+<h1 id="chapterTitle">Mock Test</h1>
+
+<p>Test Your Preparation</p>
+
+</header>
+
+<div class="container">
+
+<div class="welcome-card">
+
+<h2>Chapter Mock Test</h2>
+
+<p>
+
+Take a full mock test for this chapter.
+
+</p>
+
+<button class="start-btn">
+
+Start Mock Test
+
+</button>
+
+</div>
+
+</div>
+
+<nav class="bottom-nav">
+
+<button onclick="history.back()">
+
+⬅️<br>Back
+
+</button>
+
+<button onclick="location.href='../index.html'">
+
+🏠<br>Home
+
+</button>
+
+</nav>
+
+<script>
+
+const params = new URLSearchParams(window.location.search);
+
+const chapter = params.get("chapter");
+
+if(chapter){
+
+document.getElementById("chapterTitle").innerText = chapter;
+
+}
+
+</script>
+
+</body>
+
+</html>
