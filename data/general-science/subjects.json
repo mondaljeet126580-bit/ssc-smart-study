@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Physics",
+    "icon": "⚛️",
+    "folder": "physics"
+  },
+  {
+    "name": "Chemistry",
+    "icon": "🧪",
+    "folder": "chemistry"
+  },
+  {
+    "name": "Biology",
+    "icon": "🌿",
+    "folder": "biology"
+  }
+]
