@@ -17,15 +17,15 @@
 
 <header class="top-header">
 
-<h1 id="pageTitle">Subject</h1>
+<h1 id="title">Loading...</h1>
 
-<p>Select a Category</p>
+<p>Select Category</p>
 
 </header>
 
 <div class="container">
 
-<div class="menu-grid" id="menuGrid">
+<div class="menu-grid" id="grid">
 
 </div>
 
@@ -33,12 +33,16 @@
 
 <nav class="bottom-nav">
 
-<button onclick="location.href='../index.html'">
-🏠<br>Home
+<button onclick="location.href='study.html'">
+
+📚<br>Study
+
 </button>
 
-<button onclick="location.href='study.html'">
-📚<br>Study
+<button onclick="location.href='../index.html'">
+
+🏠<br>Home
+
 </button>
 
 </nav>
@@ -49,129 +53,49 @@ const params = new URLSearchParams(window.location.search);
 
 const subject = params.get("name");
 
-document.getElementById("pageTitle").innerText = subject;
+document.getElementById("title").innerText = subject;
 
-const menuGrid = document.getElementById("menuGrid");
+const folderMap = {
 
-let list = [];
+"General Knowledge":"general-knowledge",
 
-switch(subject){
+"General Science":"general-science",
 
-case "General Science":
+"Mathematics":"mathematics",
 
-list = [
+"Reasoning":"reasoning",
 
-"Physics",
+"Current Affairs":"current-affairs",
 
-"Chemistry",
+"Previous Year":"previous-year"
 
-"Biology"
+};
 
-];
+const folder = folderMap[subject];
 
-break;
+if(folder){
 
-case "General Knowledge":
+fetch("../data/"+folder+"/subjects.json")
 
-list = [
+.then(res=>res.json())
 
-"History",
+.then(data=>{
 
-"Geography",
+const grid=document.getElementById("grid");
 
-"Polity",
+grid.innerHTML="";
 
-"Economy",
+data.forEach(item=>{
 
-"Art & Culture"
-
-];
-
-break;
-
-case "Mathematics":
-
-list = [
-
-"Arithmetic",
-
-"Algebra",
-
-"Geometry",
-
-"Trigonometry"
-
-];
-
-break;
-
-case "Reasoning":
-
-list = [
-
-"Verbal",
-
-"Non Verbal",
-
-"Puzzle",
-
-"Series"
-
-];
-
-break;
-
-case "Current Affairs":
-
-list = [
-
-"Daily",
-
-"Weekly",
-
-"Monthly"
-
-];
-
-break;
-
-case "Previous Year":
-
-list = [
-
-"SSC CGL",
-
-"SSC CHSL",
-
-"SSC MTS",
-
-"SSC GD"
-
-];
-
-break;
-
-default:
-
-list=[];
-
-}
-
-list.forEach(item=>{
-
-menuGrid.innerHTML +=
-
-`
+grid.innerHTML += `
 
 <div class="card"
 
-onclick="openChapter('${item}')">
+onclick="openChapter('${item.folder}','${item.name}')">
 
-<div class="icon">📂</div>
+<div class="icon">${item.icon}</div>
 
-<h3>${item}</h3>
-
-<p>Open</p>
+<h3>${item.name}</h3>
 
 </div>
 
@@ -179,7 +103,19 @@ onclick="openChapter('${item}')">
 
 });
 
-function openChapter(chapter){
+})
+
+.catch(()=>{
+
+document.getElementById("grid").innerHTML=
+
+"<h3>No data found.</h3>";
+
+});
+
+}
+
+function openChapter(folder,name){
 
 window.location.href=
 
@@ -187,9 +123,13 @@ window.location.href=
 
 encodeURIComponent(subject)+
 
+"&folder="+
+
+encodeURIComponent(folder)+
+
 "&chapter="+
 
-encodeURIComponent(chapter);
+encodeURIComponent(name);
 
 }
 
