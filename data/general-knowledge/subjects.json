@@ -1,0 +1,22 @@
+[
+  {
+    "name": "History",
+    "icon": "🏛️",
+    "folder": "history"
+  },
+  {
+    "name": "Geography",
+    "icon": "🗺️",
+    "folder": "geography"
+  },
+  {
+    "name": "Polity",
+    "icon": "⚖️",
+    "folder": "polity"
+  },
+  {
+    "name": "Economics",
+    "icon": "💰",
+    "folder": "economics"
+  }
+]
