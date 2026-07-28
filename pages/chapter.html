@@ -12,16 +12,37 @@
 <body>
 
 <header class="top-header">
-
-<h1 id="title">Chapters</h1>
-
-<p>Select Chapter</p>
-
+<h1 id="title">Chapter</h1>
+<p>Select an Option</p>
 </header>
 
 <div class="container">
 
-<div class="menu-grid" id="chapterGrid">
+<div class="menu-grid">
+
+<div class="card" onclick="openPage('notes.html')">
+<div class="icon">📖</div>
+<h3>Notes</h3>
+<p>Study Notes</p>
+</div>
+
+<div class="card" onclick="openPage('mcq.html')">
+<div class="icon">📝</div>
+<h3>MCQ Practice</h3>
+<p>Practice Questions</p>
+</div>
+
+<div class="card" onclick="openPage('previous-year.html')">
+<div class="icon">📄</div>
+<h3>Previous Year</h3>
+<p>Previous Year Questions</p>
+</div>
+
+<div class="card" onclick="openPage('mock-test.html')">
+<div class="icon">🎯</div>
+<h3>Mock Test</h3>
+<p>Chapter Test</p>
+</div>
 
 </div>
 
@@ -41,65 +62,27 @@
 
 <script>
 
-const params=new URLSearchParams(window.location.search);
+const params = new URLSearchParams(window.location.search);
 
-const subject=params.get("subject");
+const subject = params.get("subject");
 
-const folder=params.get("folder");
+const folder = params.get("folder");
 
-const chapter=params.get("chapter");
+const chapter = params.get("chapter");
 
-document.getElementById("title").innerText=chapter;
+document.getElementById("title").innerText = chapter;
 
-fetch("../data/general-science/"+folder+"/chapters.json")
+function openPage(page){
 
-.then(r=>r.json())
-
-.then(data=>{
-
-const grid=document.getElementById("chapterGrid");
-
-grid.innerHTML="";
-
-data.forEach(item=>{
-
-grid.innerHTML+=`
-
-<div class="card"
-onclick="openNotes('${item.folder}','${item.name}')">
-
-<div class="icon">📚</div>
-
-<h3>${item.name}</h3>
-
-</div>
-
-`;
-
-});
-
-})
-
-.catch(()=>{
-
-document.getElementById("chapterGrid").innerHTML=
-
-"<h3>No Chapters Found</h3>";
-
-});
-
-function openNotes(folder,name){
-
-window.location.href=
-
-"notes.html?chapter="+
-
-encodeURIComponent(name);
+window.location.href =
+page +
+"?subject=" + encodeURIComponent(subject) +
+"&folder=" + encodeURIComponent(folder) +
+"&chapter=" + encodeURIComponent(chapter);
 
 }
 
 </script>
 
 </body>
-
 </html>
