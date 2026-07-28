@@ -2,71 +2,136 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Subject Details</title>
 
-    <link rel="stylesheet" href="../css/main.css">
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>SSC Smart Study</title>
+
+<link rel="stylesheet" href="../css/main.css">
+
 </head>
 
 <body>
 
-    <header class="top-header">
-        <h1>📚 Subject Details</h1>
-        <p>SSC Smart Study</p>
-    </header>
+<header class="top-header">
 
-    <div class="container">
+<h1 id="subjectTitle">Subject</h1>
 
-        <div class="welcome-card">
-            <h2 id="subjectName">Subject</h2>
-            <p>Select any chapter to start learning.</p>
-        </div>
+<p>Select a Category</p>
 
-        <div class="menu-grid">
+</header>
 
-            <div class="card">
-                <div class="icon">📖</div>
-                <h3>Notes</h3>
-                <p>Study Notes</p>
-            </div>
+<div class="container">
 
-            <div class="card">
-                <div class="icon">📝</div>
-                <h3>MCQ Practice</h3>
-                <p>Practice Questions</p>
-            </div>
+<div class="menu-grid" id="menuGrid">
 
-            <div class="card">
-                <div class="icon">🎯</div>
-                <h3>Mock Test</h3>
-                <p>Subject Test</p>
-            </div>
+</div>
 
-            <div class="card">
-                <div class="icon">🏠</div>
-                <h3>Home</h3>
-                <p>Back to Home</p>
-            </div>
+</div>
 
-        </div>
+<script>
 
-    </div>
+const params = new URLSearchParams(window.location.search);
 
-    <script>
-        const params = new URLSearchParams(window.location.search);
-        const subject = params.get("name");
+const subject = params.get("name");
 
-        if (subject) {
-            document.getElementById("subjectName").textContent = subject;
-        }
+document.getElementById("subjectTitle").textContent = subject;
 
-        const homeCard = document.querySelectorAll(".card")[3];
+const menuGrid = document.getElementById("menuGrid");
 
-        homeCard.addEventListener("click", () => {
-            window.location.href = "../index.html";
-        });
-    </script>
+let items = [];
+
+switch(subject){
+
+case "General Science":
+
+items=[
+
+"Physics",
+
+"Chemistry",
+
+"Biology"
+
+];
+
+break;
+
+case "General Knowledge":
+
+items=[
+
+"Ancient History",
+
+"Medieval History",
+
+"Modern History",
+
+"Indian Polity",
+
+"Indian Economy",
+
+"Indian Geography"
+
+];
+
+break;
+
+case "Mathematics":
+
+items=[];
+
+break;
+
+case "Reasoning":
+
+items=[];
+
+break;
+
+case "English":
+
+items=[];
+
+break;
+
+case "Current Affairs":
+
+items=[];
+
+break;
+
+case "Previous Year":
+
+items=[];
+
+break;
+
+default:
+
+items=[];
+
+}
+
+items.forEach(item=>{
+
+menuGrid.innerHTML+=`
+
+<div class="card">
+
+<div class="icon">📚</div>
+
+<h3>${item}</h3>
+
+</div>
+
+`;
+
+});
+
+</script>
 
 </body>
 
