@@ -2,11 +2,8 @@
 <html lang="en">
 
 <head>
-
 <meta charset="UTF-8">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>SSC Smart Study</title>
 
 <link rel="stylesheet" href="../css/main.css">
@@ -27,7 +24,7 @@
 
 <div class="menu-grid">
 
-<div class="card">
+<div class="card" onclick="openPage('notes.html')">
 
 <div class="icon">📖</div>
 
@@ -37,7 +34,7 @@
 
 </div>
 
-<div class="card">
+<div class="card" onclick="openPage('mcq.html')">
 
 <div class="icon">📝</div>
 
@@ -47,7 +44,7 @@
 
 </div>
 
-<div class="card">
+<div class="card" onclick="openPage('previous-year.html')">
 
 <div class="icon">📄</div>
 
@@ -57,7 +54,7 @@
 
 </div>
 
-<div class="card">
+<div class="card" onclick="openPage('mock-test.html')">
 
 <div class="icon">🎯</div>
 
@@ -74,15 +71,11 @@
 <nav class="bottom-nav">
 
 <button onclick="history.back()">
-
 ⬅️<br>Back
-
 </button>
 
 <button onclick="location.href='../index.html'">
-
 🏠<br>Home
-
 </button>
 
 </nav>
@@ -91,11 +84,24 @@
 
 const params = new URLSearchParams(window.location.search);
 
+const subject = params.get("subject");
+
 const chapter = params.get("chapter");
 
 if(chapter){
 
 document.getElementById("chapterTitle").innerText = chapter;
+
+}
+
+function openPage(page){
+
+window.location.href =
+page +
+"?subject=" +
+encodeURIComponent(subject) +
+"&chapter=" +
+encodeURIComponent(chapter);
 
 }
 
