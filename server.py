@@ -7,9 +7,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
-from delta_client import DeltaAPIError, client
+from delta_client import client
 
 mcp = MCPServer(
     "Jeet Delta Exchange MCP",
@@ -218,7 +218,14 @@ async def set_order_leverage(product_id: int, leverage: int, dry_run: bool = Tru
     _require_account_access()
     payload = {"leverage": leverage}
     if dry_run or not _live_trading_enabled():
-        return {"dry_run": True, "would_send": {"method": "POST", "path": f"/v2/products/{product_id}/orders/leverage", "body": payload}}
+        return {
+            "dry_run": True,
+            "would_send": {
+                "method": "POST",
+                "path": f"/v2/products/{product_id}/orders/leverage",
+                "body": payload,
+            },
+        }
     return await client.private("POST", f"/v2/products/{product_id}/orders/leverage", body=payload)
 
 
@@ -310,23 +317,20 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         if not required:
             return await call_next(request)
         if request.url.path == "/health":
-            return JSONResponse({"ok": True})
+            return await call_next(request)
         auth = request.headers.get("authorization", "")
         expected = f"Bearer {required}"
         if auth != expected:
-            return JSONResponse({"error": "Unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+            return JSONResponse(
+                {"error": "Unauthorized"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return await call_next(request)
 
 
-app = mcp.streamable_http_app(
-    json_response=True,
-    stateless_http=True,
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-)
-app.add_middleware(BearerTokenMiddleware)
-
-
-async def health(request: Request):
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> Response:
     return JSONResponse(
         {
             "ok": True,
@@ -339,4 +343,9 @@ async def health(request: Request):
     )
 
 
-app.add_route("/health", health, methods=["GET"])
+app = mcp.streamable_http_app(
+    json_response=True,
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
+app.add_middleware(BearerTokenMiddleware)
