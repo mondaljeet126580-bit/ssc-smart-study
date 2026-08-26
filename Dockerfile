@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py delta_client.py advanced_tools.py bootstrap.py ./
+COPY server.py delta_client.py advanced_tools.py market_diagnostics.py bootstrap.py ./
 
 ENV PORT=8000
 EXPOSE 8000
