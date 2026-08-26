@@ -1,11 +1,12 @@
-from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from advanced_tools import register_advanced_tools
+from market_diagnostics import register_market_diagnostics
 from server import BearerTokenMiddleware, client, mcp
 
 # Register extra market/funding/chart tools before constructing the HTTP app.
 register_advanced_tools(mcp, client)
+register_market_diagnostics(mcp, client)
 
 app = mcp.streamable_http_app(
     json_response=True,
