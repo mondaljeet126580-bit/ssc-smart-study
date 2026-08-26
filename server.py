@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from delta_client import client
+from delta_client import DeltaAPIError, client
 
 mcp = MCPServer(
     "Jeet Delta Exchange MCP",
@@ -93,6 +93,48 @@ async def get_balance() -> Any:
     """Get authenticated wallet balances."""
     _require_account_access()
     return await client.private("GET", "/v2/wallet/balances")
+
+
+@mcp.tool()
+async def diagnose_delta_auth() -> Any:
+    """Diagnose Delta authenticated API access without exposing API credentials.
+
+    The tool makes a real authenticated read request to the wallet-balance endpoint
+    and returns the exact Delta HTTP status/error message if authentication fails.
+    No order or trading request is sent.
+    """
+    if not client.has_credentials:
+        return {
+            "ok": False,
+            "stage": "configuration",
+            "message": "DELTA_API_KEY and/or DELTA_API_SECRET are missing from the server environment.",
+            "credentials_present": False,
+        }
+
+    try:
+        data = await client.private("GET", "/v2/wallet/balances")
+        return {
+            "ok": True,
+            "stage": "delta_authentication",
+            "message": "Authenticated Delta API request succeeded.",
+            "endpoint": "/v2/wallet/balances",
+            "result_type": type(data).__name__,
+        }
+    except DeltaAPIError as exc:
+        return {
+            "ok": False,
+            "stage": "delta_authentication",
+            "message": str(exc),
+            "endpoint": "/v2/wallet/balances",
+            "hint": "Check API key permissions, secret, IP whitelist, timestamp/signature, and Delta account/API environment.",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stage": "server_runtime",
+            "message": f"{type(exc).__name__}: {exc}",
+            "endpoint": "/v2/wallet/balances",
+        }
 
 
 @mcp.tool()
