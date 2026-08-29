@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jeet Delta Chart Bridge",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Connects Delta's web chart to the Jeet MCP chart bridge and executes horizontal-line commands on the active chart.",
   "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": [
@@ -10,42 +10,9 @@
     "https://*.tradingview.com/*"
   ],
   "content_scripts": [
-    {
-      "matches": [
-        "https://*.delta.exchange/*",
-        "https://*.deltal.exchange/*",
-        "https://*.tradingview.com/*"
-      ],
-      "js": ["page-bridge.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://*.delta.exchange/*",
-        "https://*.deltal.exchange/*",
-        "https://*.tradingview.com/*"
-      ],
-      "js": ["main.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://*.delta.exchange/*",
-        "https://*.deltal.exchange/*",
-        "https://*.tradingview.com/*"
-      ],
-      "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "world": "ISOLATED"
-    }
+    {"matches":["https://*.delta.exchange/*","https://*.deltal.exchange/*","https://*.tradingview.com/*"],"js":["page-bridge.js"],"run_at":"document_idle","all_frames":true,"world":"MAIN"},
+    {"matches":["https://*.delta.exchange/*","https://*.deltal.exchange/*","https://*.tradingview.com/*"],"js":["main.js"],"run_at":"document_idle","all_frames":true,"world":"MAIN"},
+    {"matches":["https://*.delta.exchange/*","https://*.deltal.exchange/*","https://*.tradingview.com/*"],"js":["content.js"],"run_at":"document_idle","all_frames":true,"world":"ISOLATED"}
   ],
-  "action": {
-    "default_title": "Jeet Delta Chart Bridge",
-    "default_popup": "popup.html"
-  }
+  "action":{"default_title":"Jeet Delta Chart Bridge","default_popup":"popup.html"}
 }
