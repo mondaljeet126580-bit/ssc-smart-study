@@ -9,6 +9,7 @@
   let bridgeUrl = DEFAULT_BRIDGE;
   let bridgeToken = '';
   let connected = false;
+  let configReady = false;
 
   function getCandidates() {
     const values = [];
@@ -65,6 +66,7 @@
       source: 'JEET_DELTA_BRIDGE_MAIN',
       type: 'status',
       connected,
+      config_ready: configReady,
       native_chart_api: !!findChartApi(),
     }, '*');
   }
@@ -83,8 +85,6 @@
     socket.onopen = () => {
       connected = true;
       postStatus();
-      // Ask the isolated content script to resend configuration in case MAIN loaded first.
-      window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'request_config' }, '*');
     };
 
     socket.onmessage = async (event) => {
@@ -105,6 +105,11 @@
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 2000);
     };
+
+    socket.onerror = () => {
+      connected = false;
+      postStatus();
+    };
   }
 
   window.addEventListener('message', (event) => {
@@ -113,10 +118,17 @@
     if (msg.source === 'JEET_DELTA_BRIDGE_EXTENSION' && msg.type === 'config') {
       bridgeUrl = String(msg.bridgeUrl || DEFAULT_BRIDGE).trim().replace(/\/$/, '');
       bridgeToken = String(msg.bridgeToken || '');
+      configReady = true;
+      connect();
+      postStatus();
+    }
+    if (msg.source === 'JEET_DELTA_BRIDGE_EXTENSION' && msg.type === 'force_reconnect') {
+      if (socket) try { socket.close(); } catch (_) {}
       connect();
     }
   });
 
+  // Start immediately using the known default, then accept popup configuration.
   connect();
   postStatus();
 })();
