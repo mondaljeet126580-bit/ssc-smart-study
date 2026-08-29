@@ -8,36 +8,15 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 
-app = FastAPI(title="Jeet Delta Chart Bridge", version="1.2.0")
+app = FastAPI(title="Jeet Delta Chart Bridge", version="1.2.1")
 ACCESS_TOKEN = os.getenv("CHART_BRIDGE_TOKEN", "").strip()
 _clients: set[WebSocket] = set()
 _pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
 _last_result: dict[str, Any] = {}
 
-HTML = """<!doctype html><html><body style='font-family:system-ui;background:#111;color:#eee;padding:20px'>
-<h2>Jeet Delta Chart Bridge</h2><p id='s'>Bridge ready. Keep this page open on the Delta chart tab/device.</p>
-<script>
-const token=new URLSearchParams(location.search).get('token')||'';
-let ws;
-function connect(){
- const p=location.protocol==='https:'?'wss':'ws';
- ws=new WebSocket(`${p}://${location.host}/ws?token=${encodeURIComponent(token)}`);
- ws.onopen=()=>document.getElementById('s').textContent='Bridge connected and listening';
- ws.onclose=()=>{document.getElementById('s').textContent='Disconnected; retrying…';setTimeout(connect,1500)};
- ws.onmessage=e=>{
-  let m; try{m=JSON.parse(e.data)}catch{return}
-  if(m.action==='draw_horizontal_line'){
-   if(typeof window.deltaChartBridgeDraw!=='function'){
-    ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:'Native chart adapter is not installed'}));
-    return;
-   }
-   Promise.resolve(window.deltaChartBridgeDraw(m))
-    .then(result=>ws.send(JSON.stringify({action:'draw_result',ok:true,request_id:m.request_id,result:result||{}})))
-    .catch(err=>ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:String(err)})));
-  }
- };
-}
-connect();
+HTML = """<!doctype html><html><body style='font-family:system-ui;background:#111;color:#eee;padding:20px'><h2>Jeet Delta Chart Bridge</h2><p id='s'>Bridge ready. Keep this page open on the Delta chart tab.</p><script>
+const token=new URLSearchParams(location.search).get('token')||'';let ws;
+function connect(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws?token=${encodeURIComponent(token)}`);ws.onopen=()=>document.getElementById('s').textContent='Bridge connected and listening';ws.onclose=()=>{document.getElementById('s').textContent='Disconnected; retrying…';setTimeout(connect,1500)};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.action==='draw_horizontal_line'){window.postMessage({source:'JEET_DELTA_BRIDGE_PAGE',type:'draw_horizontal_line',command:m},'*')}}}connect();
 </script></body></html>"""
 
 
@@ -47,14 +26,14 @@ def _check_auth(request: Request) -> None:
 
 
 def _validate(symbol: Any, price: Any) -> tuple[str, float]:
-    s = str(symbol or "").strip().upper()
+    symbol_value = str(symbol or "").strip().upper()
     try:
-        p = float(price)
+        price_value = float(price)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="price must be numeric") from exc
-    if not s or p <= 0:
+    if not symbol_value or price_value <= 0:
         raise HTTPException(status_code=400, detail="symbol and positive price are required")
-    return s, p
+    return symbol_value, price_value
 
 
 @app.get("/health")
@@ -92,7 +71,7 @@ async def draw(request: Request) -> JSONResponse:
     body = await request.json()
     symbol, price = _validate(body.get("symbol"), body.get("price"))
     if not _clients:
-        raise HTTPException(status_code=503, detail="No browser chart client is connected. Open the bridge page in the chart browser context first.")
+        raise HTTPException(status_code=503, detail="No browser chart client is connected")
 
     request_id = str(body.get("request_id") or uuid.uuid4().hex)
     command = {
@@ -105,30 +84,39 @@ async def draw(request: Request) -> JSONResponse:
     loop = asyncio.get_running_loop()
     future: asyncio.Future[dict[str, Any]] = loop.create_future()
     _pending[request_id] = future
-    sent = 0
+
+    delivered = 0
     for client in list(_clients):
         try:
             await client.send_json(command)
-            sent += 1
+            delivered += 1
         except Exception:
             _clients.discard(client)
 
-    if sent == 0:
+    if delivered == 0:
         _pending.pop(request_id, None)
         raise HTTPException(status_code=503, detail="No live browser chart client could receive the command")
 
     try:
         result = await asyncio.wait_for(future, timeout=15.0)
     except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Native chart client did not confirm drawing within 15 seconds") from exc
+    finally:
         _pending.pop(request_id, None)
-        raise HTTPException(status_code=504, detail="Browser chart client did not confirm native drawing within 15 seconds") from exc
 
-    _pending.pop(request_id, None)
     _last_result.clear()
     _last_result.update({"request_id": request_id, "result": result})
     if not result.get("ok"):
         raise HTTPException(status_code=422, detail=str(result.get("error") or "Native chart drawing failed"))
-    return JSONResponse({"ok": True, "executed": True, "native_chart_modified": True, "dispatched_to_clients": sent, "request_id": request_id, "result": result.get("result", {})})
+
+    return JSONResponse({
+        "ok": True,
+        "executed": True,
+        "native_chart_modified": True,
+        "dispatched_to_clients": delivered,
+        "request_id": request_id,
+        "result": result.get("result", {}),
+    })
 
 
 @app.websocket("/ws")
