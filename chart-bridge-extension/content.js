@@ -24,6 +24,27 @@
       sendConfig();
       return;
     }
+
+    if (msg.source === 'JEET_DELTA_BRIDGE_MAIN' && msg.type === 'draw_horizontal_line') {
+      window.postMessage({
+        source: 'JEET_DELTA_BRIDGE_CONTENT',
+        type: 'draw_horizontal_line',
+        ...msg.command,
+      }, '*');
+      return;
+    }
+
+    if (msg.source === 'JEET_DELTA_NATIVE_PAGE_BRIDGE' && msg.type === 'draw_result') {
+      window.postMessage({
+        source: 'JEET_DELTA_BRIDGE_CONTENT',
+        type: 'draw_result',
+        action: 'draw_result',
+        ok: !!msg.ok,
+        request_id: msg.request_id,
+        result: msg.result,
+        error: msg.error,
+      }, '*');
+    }
   });
 
   sendConfig();
