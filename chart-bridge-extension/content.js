@@ -43,7 +43,6 @@
         result: msg.result,
         error: msg.error,
       }, '*');
-      return;
     }
   });
 
