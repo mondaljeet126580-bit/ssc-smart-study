@@ -7,6 +7,13 @@ from typing import Any
 import httpx
 
 
+def _bridge_url() -> str:
+    return (
+        os.getenv("CHART_BRIDGE_URL")
+        or "https://jeet-delta-mcp.onrender.com/chart-bridge"
+    ).strip().rstrip("/")
+
+
 async def dispatch_horizontal_line(
     symbol: str,
     price: float,
@@ -14,17 +21,14 @@ async def dispatch_horizontal_line(
     label: str = "Horizontal level",
 ) -> dict[str, Any]:
     """Dispatch an exact horizontal-line command and require native execution confirmation."""
-    bridge_url = os.getenv("CHART_BRIDGE_URL", "").strip().rstrip("/")
+    bridge_url = _bridge_url()
     token = os.getenv("CHART_BRIDGE_TOKEN", "").strip()
-    if not bridge_url:
-        return {"ok": False, "executed": False, "error": "CHART_BRIDGE_URL is not configured"}
-
     request_id = uuid.uuid4().hex
     headers = {"Authorization": f"Bearer {token}"} if token else None
     payload = {
         "symbol": str(symbol).strip().upper(),
         "price": float(price),
-        "resolution": str(resolution).strip(),
+        "resolution": str(resolution).strip() or "15m",
         "label": str(label or "Horizontal level"),
         "request_id": request_id,
     }
@@ -34,12 +38,17 @@ async def dispatch_horizontal_line(
             try:
                 data = response.json()
             except Exception:
-                data = {"executed": False, "native_chart_modified": False, "error": response.text[:1000]}
+                data = {
+                    "executed": False,
+                    "native_chart_modified": False,
+                    "error": response.text[:1000],
+                }
     except Exception as exc:
         return {
             "ok": False,
             "executed": False,
             "request_id": request_id,
+            "bridge_url": bridge_url,
             "error": f"{type(exc).__name__}: {exc}",
         }
 
@@ -49,5 +58,6 @@ async def dispatch_horizontal_line(
         "executed": executed,
         "request_id": request_id,
         "status_code": response.status_code,
+        "bridge_url": bridge_url,
         "response": data,
     }
