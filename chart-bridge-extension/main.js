@@ -11,69 +11,12 @@
   let connected = false;
   let configReady = false;
 
-  function getCandidates() {
-    const values = [];
-    const add = (v) => { if (v && !values.includes(v)) values.push(v); };
-    try {
-      add(window.tvWidget);
-      add(window.TradingView?.widget);
-      add(window.chartWidget);
-      add(window.widget);
-      add(window.tv?.widget);
-    } catch (_) {}
-    return values;
+  function postMessage(type, payload = {}) {
+    window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type, ...payload }, '*');
   }
 
-  function findChartApi() {
-    for (const widget of getCandidates()) {
-      try {
-        if (typeof widget.activeChart === 'function') {
-          const chart = widget.activeChart();
-          if (chart && typeof chart.createShape === 'function') return chart;
-        }
-        if (typeof widget.chart === 'function') {
-          const chart = widget.chart();
-          if (chart && typeof chart.createShape === 'function') return chart;
-        }
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  async function drawHorizontalLine(msg) {
-    const symbol = String(msg.symbol || '').trim().toUpperCase();
-    const price = Number(msg.price);
-    if (!symbol || !Number.isFinite(price) || price <= 0) throw new Error('Invalid symbol or price');
-
-    const chart = findChartApi();
-    if (!chart) throw new Error('Native chart createShape API is unavailable on this Delta chart');
-
-    const shapeId = await chart.createShape(
-      { time: Math.floor(Date.now() / 1000), price },
-      {
-        shape: 'horizontal_line',
-        text: msg.label || `Horizontal ${price}`,
-        disableSave: false,
-        disableUndo: false,
-      }
-    );
-
-    return { native: true, symbol, price, shape_id: shapeId ?? null };
-  }
-
-  function postStatus() {
-    window.postMessage({
-      source: 'JEET_DELTA_BRIDGE_MAIN',
-      type: 'status',
-      connected,
-      config_ready: configReady,
-      native_chart_api: !!findChartApi(),
-    }, '*');
-  }
-
-  function sendResult(payload) {
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
-    window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'draw_result', ...payload }, '*');
+  function requestConfig() {
+    postMessage('request_config');
   }
 
   function connect() {
@@ -84,51 +27,61 @@
 
     socket.onopen = () => {
       connected = true;
-      postStatus();
+      postMessage('status', { connected, config_ready: configReady });
     };
 
-    socket.onmessage = async (event) => {
+    socket.onmessage = (event) => {
       let msg;
       try { msg = JSON.parse(event.data); } catch (_) { return; }
       if (msg.action !== 'draw_horizontal_line') return;
-      try {
-        const result = await drawHorizontalLine(msg);
-        sendResult({ action: 'draw_result', ok: true, request_id: msg.request_id, result });
-      } catch (error) {
-        sendResult({ action: 'draw_result', ok: false, request_id: msg.request_id, error: String(error) });
-      }
+      // Native chart access is deliberately isolated in MAIN-world page-bridge.js.
+      // The content script receives the command and forwards it into that bridge.
+      postMessage('draw_horizontal_line', { command: msg });
     };
 
     socket.onclose = () => {
       connected = false;
-      postStatus();
+      postMessage('status', { connected, config_ready: configReady });
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 2000);
     };
 
     socket.onerror = () => {
       connected = false;
-      postStatus();
+      postMessage('status', { connected, config_ready: configReady });
     };
   }
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
     const msg = event.data;
+
     if (msg.source === 'JEET_DELTA_BRIDGE_EXTENSION' && msg.type === 'config') {
       bridgeUrl = String(msg.bridgeUrl || DEFAULT_BRIDGE).trim().replace(/\/$/, '');
       bridgeToken = String(msg.bridgeToken || '');
       configReady = true;
       connect();
-      postStatus();
+      return;
     }
-    if (msg.source === 'JEET_DELTA_BRIDGE_EXTENSION' && msg.type === 'force_reconnect') {
-      if (socket) try { socket.close(); } catch (_) {}
-      connect();
+
+    if (msg.source === 'JEET_DELTA_BRIDGE_CONTENT' && msg.type === 'request_config') {
+      requestConfig();
+      return;
+    }
+
+    if (msg.source === 'JEET_DELTA_BRIDGE_CONTENT' && msg.type === 'draw_result') {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          action: 'draw_result',
+          ok: !!msg.ok,
+          request_id: msg.request_id,
+          result: msg.result,
+          error: msg.error,
+        }));
+      }
+      return;
     }
   });
 
-  // Start immediately using the known default, then accept popup configuration.
   connect();
-  postStatus();
 })();
