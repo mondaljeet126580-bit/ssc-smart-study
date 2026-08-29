@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import math
 import time
@@ -8,7 +9,6 @@ from typing import Any
 
 from PIL import Image as PILImage
 from PIL import ImageDraw, ImageFont
-from mcp.server.mcpserver import Image
 
 
 _RESOLUTION_SECONDS = {
@@ -83,14 +83,15 @@ def _linear_regression(values: list[float]) -> tuple[float, float]:
 def register_advanced_tools(mcp, client) -> None:
     @mcp.tool()
     async def get_all_funding_rates(limit: int = 100, sort_mode: str = "highest_abs") -> Any:
-        """Return funding rates for all listed perpetual futures, ranked by the selected mode."""
+        """Return funding rates for all listed perpetual-futures tickers."""
         limit = max(1, min(limit, 500))
         sort_mode = sort_mode.strip().lower()
         if sort_mode not in {"highest_abs", "highest_positive", "lowest_negative"}:
             raise ValueError("sort_mode must be highest_abs, highest_positive, or lowest_negative")
         data = await client.public("GET", "/v2/tickers", {"contract_types": "perpetual_futures"})
+        tickers = _extract_result(data)
         rows: list[dict[str, Any]] = []
-        for ticker in _extract_result(data):
+        for ticker in tickers:
             rate = _funding_value(ticker)
             symbol = _funding_symbol(ticker)
             if rate is None or not symbol:
@@ -133,7 +134,7 @@ def register_advanced_tools(mcp, client) -> None:
         now = int(time.time())
         return await client.public("GET", "/v2/history/candles", {
             "resolution": resolution,
-            "symbol": f"FUNDING:{symbol.strip().upper()}",
+            "symbol": f"FUNDING:{symbol.upper()}",
             "start": now - hours * 3600,
             "end": now,
         })
@@ -151,7 +152,7 @@ def register_advanced_tools(mcp, client) -> None:
                 }
                 if not all(math.isfinite(v) for v in values.values()):
                     continue
-                if values["high"] < values["low"] or values["open"] <= 0 or values["close"] <= 0:
+                if values["high"] < values["low"] or values["high"] < max(values["open"], values["close"]) or values["low"] > min(values["open"], values["close"]):
                     continue
                 clean.append(values)
             except (KeyError, TypeError, ValueError):
@@ -162,29 +163,20 @@ def register_advanced_tools(mcp, client) -> None:
         return clean
 
     async def _fetch_chart_data(symbol: str, resolution: str, candles: int) -> list[dict[str, float]]:
-        symbol = symbol.strip().upper()
         step = _RESOLUTION_SECONDS[resolution]
         now = int(time.time())
         data = await client.public("GET", "/v2/history/candles", {
             "resolution": resolution,
-            "symbol": symbol,
+            "symbol": symbol.upper(),
             "start": now - step * candles,
             "end": now,
         })
         rows = _extract_result(data)
         if not rows:
-            raise RuntimeError(f"No candle data returned for {symbol}")
+            raise RuntimeError(f"No candle data returned for {symbol.upper()}")
         return _normalize_candle_rows(rows, candles, symbol)
 
-    def _render_market_chart(
-        clean: list[dict[str, float]],
-        symbol: str,
-        resolution: str,
-        horizontal_price: float | None,
-        show_trendline: bool,
-        show_support_resistance: bool,
-        horizontal_label: str = "Horizontal level",
-    ) -> tuple[bytes, dict[str, Any]]:
+    def _render_market_chart(clean: list[dict[str, float]], symbol: str, resolution: str, horizontal_price: float | None, show_trendline: bool, show_support_resistance: bool, horizontal_label: str = "Horizontal level") -> tuple[bytes, dict[str, Any]]:
         width, height = 1400, 820
         image = PILImage.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
@@ -194,7 +186,6 @@ def register_advanced_tools(mcp, client) -> None:
         left, right, top, bottom = 90, 150, 70, 100
         plot_w = width - left - right
         plot_h = height - top - bottom
-
         highs = [r["high"] for r in clean]
         lows = [r["low"] for r in clean]
         closes = [r["close"] for r in clean]
@@ -229,8 +220,10 @@ def register_advanced_tools(mcp, client) -> None:
         body_half = max(2, plot_w // max(1, len(clean)) // 3)
         for i, row in enumerate(clean):
             x = x_at(i)
-            y_open, y_close = y_at(row["open"]), y_at(row["close"])
-            y_high, y_low = y_at(row["high"]), y_at(row["low"])
+            y_open = y_at(row["open"])
+            y_close = y_at(row["close"])
+            y_high = y_at(row["high"])
+            y_low = y_at(row["low"])
             fill = "#16a34a" if row["close"] >= row["open"] else "#dc2626"
             draw.line((x, y_high, x, y_low), fill=fill, width=2)
             top_body, bot_body = min(y_open, y_close), max(y_open, y_close)
@@ -252,7 +245,7 @@ def register_advanced_tools(mcp, client) -> None:
             line_y = max(top, min(height - bottom, y_at(horizontal_price)))
             draw.line((left, line_y, width - right, line_y), fill="#7c3aed", width=4)
             text_y = max(top + 4, min(height - bottom - 22, line_y + 6))
-            draw.text((left + 8, text_y), f"{horizontal_label}: {horizontal_price:.10g}", fill="#7c3aed", font=small_font)
+            draw.text((left + 8, text_y), f"{horizontal_label}: {horizontal_price:.15g}", fill="#7c3aed", font=small_font)
 
         slope, intercept = _linear_regression(closes)
         if show_trendline:
@@ -260,8 +253,7 @@ def register_advanced_tools(mcp, client) -> None:
             direction = "uptrend" if slope > 0 else "downtrend" if slope < 0 else "flat"
         else:
             direction = "disabled"
-        title = f"{symbol.upper()} • {resolution} • {len(clean)} candles"
-        draw.text((left, 20), title, fill="#111827", font=title_font)
+        draw.text((left, 20), f"{symbol.upper()} • {resolution} • {len(clean)} candles", fill="#111827", font=title_font)
         trend_pct = (slope * len(closes) / closes[0] * 100) if closes[0] else 0.0
         draw.text((left, height - 70), f"Trend: {direction} | regression slope: {trend_pct:.3f}% across chart", fill="#374151", font=small_font)
         draw.text((left, height - 45), f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}", fill="#6b7280", font=small_font)
@@ -281,16 +273,16 @@ def register_advanced_tools(mcp, client) -> None:
         }
         return buf.getvalue(), summary
 
+    def _json_chart(image_bytes: bytes, summary: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **summary,
+            "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+            "image_format": "png",
+        }
+
     @mcp.tool()
-    async def plot_market_chart(
-        symbol: str,
-        resolution: str = "15m",
-        candles: int = 120,
-        horizontal_price: float | None = None,
-        show_trendline: bool = True,
-        show_support_resistance: bool = True,
-    ) -> dict[str, Any]:
-        """Create a market chart and return its image as base64 plus exact chart metadata."""
+    async def plot_market_chart(symbol: str, resolution: str = "15m", candles: int = 120, horizontal_price: float | None = None, show_trendline: bool = True, show_support_resistance: bool = True) -> dict[str, Any]:
+        """Create a market chart and return JSON-safe chart data plus an embedded PNG."""
         symbol = symbol.strip().upper()
         resolution = resolution.strip()
         if resolution not in _RESOLUTION_SECONDS:
@@ -298,61 +290,36 @@ def register_advanced_tools(mcp, client) -> None:
         candles = max(30, min(int(candles), 2000))
         clean = await _fetch_chart_data(symbol, resolution, candles)
         image_bytes, summary = _render_market_chart(clean, symbol, resolution, horizontal_price, show_trendline, show_support_resistance)
-        return {"image_base64": __import__("base64").b64encode(image_bytes).decode("ascii"), **summary}
+        return _json_chart(image_bytes, summary)
 
     @mcp.tool()
-    async def plot_horizontal_price_line(
-        symbol: str,
-        price: float,
-        resolution: str = "15m",
-        candles: int = 120,
-        show_trendline: bool = True,
-        show_support_resistance: bool = True,
-        label: str = "Horizontal level",
-    ) -> dict[str, Any]:
-        """Plot a horizontal line at exactly the user-supplied price on a Delta Exchange chart.
+    async def plot_horizontal_price_line(symbol: str, price: float, resolution: str = "15m", candles: int = 120, show_trendline: bool = True, show_support_resistance: bool = True, label: str = "Horizontal level") -> dict[str, Any]:
+        """Create a Delta chart with a horizontal line at exactly the supplied price.
 
-        Returns a JSON object containing the chart as base64 plus the exact requested price,
-        so clients that cannot render MCP Image objects still receive the result.
+        The supplied price is never snapped to the candle range or rounded to another level.
         """
         symbol = symbol.strip().upper()
         resolution = resolution.strip()
         if not symbol:
-            raise ValueError("symbol is required.")
+            raise ValueError("symbol is required")
         if resolution not in _RESOLUTION_SECONDS:
             raise ValueError(f"Unsupported resolution: {resolution}")
         try:
-            price = float(price)
+            exact_price = float(price)
         except (TypeError, ValueError) as exc:
-            raise ValueError("price must be a valid number.") from exc
-        if not math.isfinite(price) or price <= 0:
-            raise ValueError("price must be a positive finite number.")
+            raise ValueError("price must be a valid number") from exc
+        if not math.isfinite(exact_price) or exact_price <= 0:
+            raise ValueError("price must be a positive finite number")
         candles = max(30, min(int(candles), 2000))
         label = str(label).strip() or "Horizontal level"
-
         clean = await _fetch_chart_data(symbol, resolution, candles)
-        image_bytes, summary = _render_market_chart(
-            clean,
-            symbol,
-            resolution,
-            price,
-            show_trendline,
-            show_support_resistance,
-            horizontal_label=label,
-        )
-        import base64
-        return {
-            "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+        image_bytes, summary = _render_market_chart(clean, symbol, resolution, exact_price, show_trendline, show_support_resistance, horizontal_label=label)
+        result = _json_chart(image_bytes, summary)
+        result.update({
             "tool": "plot_horizontal_price_line",
-            "symbol": symbol,
-            "resolution": resolution,
-            "candles": len(clean),
-            "line_price": price,
-            "line_price_exact": format(price, ".15g"),
+            "line_price": exact_price,
+            "line_price_exact": format(exact_price, ".15g"),
             "line_label": label,
-            "current_price": summary["current_price"],
-            "support": summary["support"],
-            "resistance": summary["resistance"],
-            "trend_direction": summary["trend_direction"],
-            "message": f"Horizontal price line plotted at exactly {format(price, '.15g')} on {symbol}.",
-        }
+            "message": f"Horizontal price line plotted at exactly {format(exact_price, '.15g')} on {symbol}.",
+        })
+        return result
