@@ -26,6 +26,11 @@ _RESOLUTION_SECONDS = {
     "1w": 604800,
 }
 
+# Server-side drawing state. This is deliberately lightweight and scoped to this
+# MCP process. Each chart key keeps user-requested horizontal levels so a later
+# chart call can reproduce them instead of merely claiming a line was drawn.
+_CHART_DRAWINGS: dict[tuple[str, str], list[float]] = {}
+
 
 def _extract_result(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, dict):
@@ -176,6 +181,15 @@ def register_advanced_tools(mcp, client) -> None:
             raise RuntimeError(f"No candle data returned for {symbol.upper()}")
         return _normalize_candle_rows(rows, candles, symbol)
 
+    def _drawing_levels(symbol: str, resolution: str, requested: float | None) -> list[float]:
+        key = (symbol.upper(), resolution)
+        levels = list(_CHART_DRAWINGS.get(key, []))
+        if requested is not None:
+            if not any(math.isclose(requested, existing, rel_tol=0.0, abs_tol=1e-12) for existing in levels):
+                levels.append(requested)
+            _CHART_DRAWINGS[key] = levels[-20:]
+        return levels
+
     def _render_market_chart(clean: list[dict[str, float]], symbol: str, resolution: str, horizontal_price: float | None, show_trendline: bool, show_support_resistance: bool, horizontal_label: str = "Horizontal level") -> tuple[bytes, dict[str, Any]]:
         width, height = 1400, 820
         image = PILImage.new("RGB", (width, height), "white")
@@ -189,11 +203,13 @@ def register_advanced_tools(mcp, client) -> None:
         highs = [r["high"] for r in clean]
         lows = [r["low"] for r in clean]
         closes = [r["close"] for r in clean]
+
+        levels = _drawing_levels(symbol, resolution, horizontal_price)
         range_min = min(lows)
         range_max = max(highs)
-        if horizontal_price is not None:
-            range_min = min(range_min, horizontal_price)
-            range_max = max(range_max, horizontal_price)
+        for level in levels:
+            range_min = min(range_min, level)
+            range_max = max(range_max, level)
         if range_min == range_max:
             base = max(abs(range_min), 1.0)
             range_min -= base * 0.01
@@ -220,10 +236,8 @@ def register_advanced_tools(mcp, client) -> None:
         body_half = max(2, plot_w // max(1, len(clean)) // 3)
         for i, row in enumerate(clean):
             x = x_at(i)
-            y_open = y_at(row["open"])
-            y_close = y_at(row["close"])
-            y_high = y_at(row["high"])
-            y_low = y_at(row["low"])
+            y_open, y_close = y_at(row["open"]), y_at(row["close"])
+            y_high, y_low = y_at(row["high"]), y_at(row["low"])
             fill = "#16a34a" if row["close"] >= row["open"] else "#dc2626"
             draw.line((x, y_high, x, y_low), fill=fill, width=2)
             top_body, bot_body = min(y_open, y_close), max(y_open, y_close)
@@ -244,8 +258,15 @@ def register_advanced_tools(mcp, client) -> None:
         if horizontal_price is not None:
             line_y = max(top, min(height - bottom, y_at(horizontal_price)))
             draw.line((left, line_y, width - right, line_y), fill="#7c3aed", width=4)
-            text_y = max(top + 4, min(height - bottom - 22, line_y + 6))
-            draw.text((left + 8, text_y), f"{horizontal_label}: {horizontal_price:.15g}", fill="#7c3aed", font=small_font)
+            draw.text((left + 8, max(top + 4, min(height - bottom - 22, line_y + 6))), f"{horizontal_label}: {horizontal_price:.15g}", fill="#7c3aed", font=small_font)
+
+        # Persisted levels are rendered as neutral lines when this chart is redrawn.
+        for level in levels:
+            if horizontal_price is not None and math.isclose(level, horizontal_price, rel_tol=0.0, abs_tol=1e-12):
+                continue
+            yy = max(top, min(height - bottom, y_at(level)))
+            draw.line((left, yy, width - right, yy), fill="#7c3aed", width=3)
+            draw.text((left + 8, max(top + 4, min(height - bottom - 22, yy + 6))), f"Stored level: {level:.15g}", fill="#7c3aed", font=small_font)
 
         slope, intercept = _linear_regression(closes)
         if show_trendline:
@@ -267,6 +288,7 @@ def register_advanced_tools(mcp, client) -> None:
             "support": support,
             "resistance": resistance,
             "horizontal_price": horizontal_price,
+            "stored_horizontal_levels": levels,
             "line_y": line_y,
             "trend_direction": direction,
             "trend_slope_percent_over_chart": trend_pct,
@@ -289,14 +311,15 @@ def register_advanced_tools(mcp, client) -> None:
             raise ValueError(f"Unsupported resolution: {resolution}")
         candles = max(30, min(int(candles), 2000))
         clean = await _fetch_chart_data(symbol, resolution, candles)
-        image_bytes, summary = _render_market_chart(clean, symbol, resolution, horizontal_price, show_trendline, show_support_resistance)
-        return _json_chart(image_bytes, summary)
+        return _json_chart(*_render_market_chart(clean, symbol, resolution, horizontal_price, show_trendline, show_support_resistance))
 
     @mcp.tool()
     async def plot_horizontal_price_line(symbol: str, price: float, resolution: str = "15m", candles: int = 120, show_trendline: bool = True, show_support_resistance: bool = True, label: str = "Horizontal level") -> dict[str, Any]:
-        """Create a Delta chart with a horizontal line at exactly the supplied price.
+        """Store and render a persistent horizontal line at exactly the requested price.
 
-        The supplied price is never snapped to the candle range or rounded to another level.
+        This is a server-side chart drawing operation. The level is persisted for the
+        lifetime of the MCP process for the (symbol, resolution) chart key, and every
+        regenerated chart includes the stored level.
         """
         symbol = symbol.strip().upper()
         resolution = resolution.strip()
@@ -313,13 +336,21 @@ def register_advanced_tools(mcp, client) -> None:
         candles = max(30, min(int(candles), 2000))
         label = str(label).strip() or "Horizontal level"
         clean = await _fetch_chart_data(symbol, resolution, candles)
+        levels = _drawing_levels(symbol, resolution, exact_price)
         image_bytes, summary = _render_market_chart(clean, symbol, resolution, exact_price, show_trendline, show_support_resistance, horizontal_label=label)
         result = _json_chart(image_bytes, summary)
         result.update({
             "tool": "plot_horizontal_price_line",
+            "symbol": symbol,
+            "resolution": resolution,
             "line_price": exact_price,
             "line_price_exact": format(exact_price, ".15g"),
-            "line_label": label,
-            "message": f"Horizontal price line plotted at exactly {format(exact_price, '.15g')} on {symbol}.",
+            "stored_horizontal_levels": levels,
+            "line_persisted": True,
+            "line_scope": "MCP process / symbol + resolution",
+            "line_action": "draw_horizontal_price",
+            "line_coordinates": {"price": exact_price, "from_candle": 0, "to_candle": len(clean) - 1},
+            "line_color": "#7c3aed",
+            "message": f"Drew horizontal price line at exactly {format(exact_price, '.15g')} on {symbol}.",
         })
         return result
