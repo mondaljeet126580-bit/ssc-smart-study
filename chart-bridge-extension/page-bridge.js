@@ -6,7 +6,7 @@
   const EVENT_IN = 'JEET_DELTA_NATIVE_DRAW_COMMAND';
   const EVENT_OUT = 'JEET_DELTA_NATIVE_DRAW_RESULT';
   const RETRY_MS = 750;
-  const MAX_RETRIES = 20;
+  const MAX_RETRIES = 40;
 
   function findWidget() {
     const candidates = [window.tvWidget, window.TradingView?.widget, window.chartWidget, window.widget, window.tv?.widget];
@@ -34,23 +34,25 @@
     const symbol = String(msg.symbol || '').trim().toUpperCase();
     const resolution = String(msg.resolution || '').trim();
     const price = Number(msg.price);
-    if (!symbol || !resolution || !Number.isFinite(price) || price <= 0) {
-      throw new Error('Invalid symbol, resolution, or price');
-    }
+    if (!symbol || !resolution || !Number.isFinite(price) || price <= 0) throw new Error('Invalid symbol, resolution, or price');
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
       const chart = findChart();
       if (chart) {
-        const shapeId = await chart.createShape(
-          { time: Math.floor(Date.now() / 1000), price },
-          {
-            shape: 'horizontal_line',
-            text: msg.label || `Horizontal ${price}`,
-            disableSave: false,
-            disableUndo: false,
+        try {
+          // Use the TradingView drawing API exposed by the Delta web chart.
+          // A horizontal_line only needs price; timestamp anchors it to the current viewport.
+          const shapeId = await chart.createShape(
+            { time: Math.floor(Date.now() / 1000), price },
+            { shape: 'horizontal_line', text: msg.label || `Horizontal ${price}`, disableSave: false, disableUndo: false }
+          );
+          if (shapeId === undefined || shapeId === null || shapeId === false) {
+            throw new Error('Native chart createShape returned no shape id');
           }
-        );
-        return { native: true, symbol, resolution, price, shape_id: shapeId ?? null };
+          return { native: true, symbol, resolution, price, shape_id: shapeId };
+        } catch (error) {
+          if (attempt === MAX_RETRIES - 1) throw error;
+        }
       }
       await new Promise(resolve => setTimeout(resolve, RETRY_MS));
     }
