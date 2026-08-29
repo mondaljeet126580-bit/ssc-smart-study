@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Jeet Delta Chart Bridge",
-  "version": "1.0.1",
-  "description": "Connects the Delta chart page to the Jeet MCP chart bridge and executes horizontal-line commands when the chart exposes a TradingView drawing API.",
+  "version": "1.0.2",
+  "description": "Connects Delta's web chart to the Jeet MCP chart bridge and executes horizontal-line commands when the chart exposes a native TradingView drawing API.",
+  "permissions": ["storage"],
   "host_permissions": [
     "https://*.delta.exchange/*",
     "https://*.deltal.exchange/*",
@@ -16,6 +17,17 @@
         "https://*.tradingview.com/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://*.delta.exchange/*",
+        "https://*.deltal.exchange/*",
+        "https://*.tradingview.com/*"
+      ],
+      "js": ["main.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "world": "MAIN"
