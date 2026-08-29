@@ -18,8 +18,12 @@
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
-    if (event.data.source !== 'JEET_DELTA_BRIDGE_MAIN' || event.data.type !== 'request_config') return;
-    sendConfig();
+    const msg = event.data;
+
+    if (msg.source === 'JEET_DELTA_BRIDGE_MAIN' && msg.type === 'request_config') {
+      sendConfig();
+      return;
+    }
   });
 
   sendConfig();
