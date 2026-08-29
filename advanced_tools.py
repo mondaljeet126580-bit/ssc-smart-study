@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from PIL import Image as PILImage, ImageDraw, ImageFont
 
 _RESOLUTION_SECONDS = {
@@ -157,6 +158,25 @@ def register_advanced_tools(mcp, client) -> None:
     def _json_chart(image_bytes, summary):
         return {**summary,"image_base64":base64.b64encode(image_bytes).decode("ascii"),"image_format":"png"}
 
+    async def _dispatch_native_line(symbol: str, price: float, resolution: str, label: str) -> dict[str, Any]:
+        bridge_url = os.getenv("CHART_BRIDGE_URL", "").strip().rstrip("/")
+        bridge_token = os.getenv("CHART_BRIDGE_TOKEN", "").strip()
+        if not bridge_url:
+            return {"ok": False, "executed": False, "error": "CHART_BRIDGE_URL is not configured"}
+        payload = {"symbol": symbol, "price": price, "resolution": resolution, "label": label, "request_id": f"mcp-{time.time_ns()}"}
+        headers = {"Authorization": f"Bearer {bridge_token}"} if bridge_token else None
+        try:
+            async with httpx.AsyncClient(timeout=25) as http:
+                response = await http.post(f"{bridge_url}/draw", json=payload, headers=headers)
+            try:
+                data = response.json()
+            except Exception:
+                data = {"ok": False, "executed": False, "error": response.text[:1000]}
+            executed = bool(response.is_success and data.get("ok") and data.get("executed") and data.get("native_chart_modified"))
+            return {"ok": executed, "executed": executed, "status_code": response.status_code, "response": data, "error": None if executed else str(data.get("detail") or data.get("error") or "Native chart execution was not confirmed")}
+        except Exception as exc:
+            return {"ok": False, "executed": False, "error": f"{type(exc).__name__}: {exc}"}
+
     @mcp.tool()
     async def plot_market_chart(symbol: str, resolution: str = "15m", candles: int = 120, horizontal_price: float | None = None, show_trendline: bool = True, show_support_resistance: bool = True) -> dict[str, Any]:
         """Render a chart image with stored annotations and exact requested price."""
@@ -166,11 +186,7 @@ def register_advanced_tools(mcp, client) -> None:
 
     @mcp.tool()
     async def plot_horizontal_price_line(symbol: str, price: float, resolution: str = "15m", candles: int = 120, show_trendline: bool = True, show_support_resistance: bool = True, label: str = "Horizontal level") -> dict[str, Any]:
-        """Request an exact native horizontal line and report success only after browser confirmation.
-
-        The server keeps a fallback rendered chart for diagnostics. Native success is only true
-        when the connected browser chart bridge confirms the native drawing operation.
-        """
+        """Draw an exact horizontal line on the connected native chart and require native confirmation."""
         symbol=symbol.strip().upper(); resolution=resolution.strip()
         if not symbol: raise ValueError("symbol is required")
         if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
@@ -180,35 +196,18 @@ def register_advanced_tools(mcp, client) -> None:
         candles=max(30,min(int(candles),2000)); label=str(label).strip() or "Horizontal level"
         clean=await _fetch_chart_data(symbol,resolution,candles)
         image_bytes,summary=_render(clean,symbol,resolution,exact_price,show_trendline,show_support_resistance,label)
-        bridge_url=os.getenv("CHART_BRIDGE_URL", "").strip().rstrip("/")
-        bridge_token=os.getenv("CHART_BRIDGE_TOKEN", "").strip()
-        native_ok=False; native_error=None; bridge_response=None
-        if bridge_url:
-            try:
-                import httpx
-                headers={"Authorization":f"Bearer {bridge_token}"} if bridge_token else None
-                async with httpx.AsyncClient(timeout=20) as http:
-                    response=await http.post(f"{bridge_url}/draw",json={"symbol":symbol,"price":exact_price,"label":label,"resolution":resolution},headers=headers)
-                    try: bridge_response=response.json()
-                    except Exception: bridge_response={"ok":False,"executed":False,"error":response.text[:1000]}
-                    native_ok=bool(response.is_success and bridge_response.get("ok") and bridge_response.get("executed") and bridge_response.get("native_chart_modified"))
-                    if not native_ok: native_error=str(bridge_response.get("error") or bridge_response.get("detail") or "Native chart execution was not confirmed")
-            except Exception as exc:
-                native_error=f"{type(exc).__name__}: {exc}"
-        else:
-            native_error="CHART_BRIDGE_URL is not configured"
+        native = await _dispatch_native_line(symbol, exact_price, resolution, label)
         return {
             **_json_chart(image_bytes,summary),
             "tool":"plot_horizontal_price_line",
             "line_price_exact":format(exact_price,'.15g'),
             "line_action":"native_chart_execution",
-            "bridge_configured":bool(bridge_url),
-            "native_chart_command_dispatched":native_ok,
-            "native_delta_chart_modified":native_ok,
-            "executed":native_ok,
-            "bridge_response":bridge_response,
-            "bridge_error":native_error,
-            "message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native_ok else f"Horizontal line was NOT executed on the native chart at {format(exact_price,'.15g')} on {symbol} {resolution}.")
+            "bridge_configured":bool(os.getenv("CHART_BRIDGE_URL", "").strip()),
+            "native_chart_command_dispatched":bool(native.get("ok")),
+            "native_delta_chart_modified":bool(native.get("executed")),
+            "executed":bool(native.get("executed")),
+            "bridge_response":native,
+            "message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native.get("executed") else f"Horizontal line was not executed on the native chart: {native.get('error')}")
         }
 
     @mcp.tool()
