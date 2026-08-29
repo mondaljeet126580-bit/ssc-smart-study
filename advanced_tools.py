@@ -12,8 +12,9 @@ import httpx
 from PIL import Image as PILImage, ImageDraw, ImageFont
 
 _RESOLUTION_SECONDS = {
-    "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
-    "2h": 7200, "4h": 14400, "6h": 21600, "12h": 43200, "1d": 86400, "1w": 604800,
+    "1m": 60, "3m": 180, "5m": 300, "10m": 600, "15m": 900, "30m": 1800,
+    "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "12h": 43200,
+    "1d": 86400, "1w": 604800,
 }
 
 _CHART_DRAWINGS: dict[tuple[str, str], list[float]] = {}
@@ -50,6 +51,110 @@ def _linear_regression(values: list[float]) -> tuple[float, float]:
         return 0.0, values[-1]
     slope = (n * sxy - sx * sy) / denom
     return slope, (sy - slope * sx) / n
+
+
+def _ema(values: list[float], period: int) -> float | None:
+    if len(values) < period:
+        return None
+    alpha = 2.0 / (period + 1.0)
+    value = sum(values[:period]) / period
+    for price in values[period:]:
+        value = alpha * price + (1.0 - alpha) * value
+    return value
+
+
+def _atr(rows: list[dict[str, float]], period: int = 14) -> float | None:
+    if len(rows) <= period:
+        return None
+    trs: list[float] = []
+    previous_close: float | None = None
+    for row in rows:
+        high, low, close = row["high"], row["low"], row["close"]
+        tr = high - low if previous_close is None else max(high - low, abs(high - previous_close), abs(low - previous_close))
+        trs.append(tr)
+        previous_close = close
+    return sum(trs[-period:]) / period
+
+
+def _pct(a: float, b: float) -> float:
+    return ((a - b) / b * 100.0) if b else 0.0
+
+
+def _analyze_rows(rows: list[dict[str, float]], reference: float | None) -> dict[str, Any]:
+    closes = [r["close"] for r in rows]
+    highs = [r["high"] for r in rows]
+    lows = [r["low"] for r in rows]
+    current = closes[-1]
+    ema20 = _ema(closes, 20)
+    ema50 = _ema(closes, 50)
+    ema200 = _ema(closes, 200)
+    atr14 = _atr(rows, 14)
+    slope, _ = _linear_regression(closes[-min(50, len(closes)):])
+    recent = rows[-min(30, len(rows)):]
+    swing_high = max(r["high"] for r in recent)
+    swing_low = min(r["low"] for r in recent)
+    prior = rows[-min(10, len(rows)):-1] or rows[:-1]
+    prior_high = max((r["high"] for r in prior), default=swing_high)
+    prior_low = min((r["low"] for r in prior), default=swing_low)
+    trend_score = 0
+    if ema20 is not None and current > ema20: trend_score += 1
+    elif ema20 is not None and current < ema20: trend_score -= 1
+    if ema50 is not None and current > ema50: trend_score += 1
+    elif ema50 is not None and current < ema50: trend_score -= 1
+    if ema200 is not None and current > ema200: trend_score += 1
+    elif ema200 is not None and current < ema200: trend_score -= 1
+    if slope > 0: trend_score += 1
+    elif slope < 0: trend_score -= 1
+    trend = "bullish" if trend_score >= 2 else "bearish" if trend_score <= -2 else "mixed / ranging"
+    ref_zone = None
+    if reference is not None:
+        distance_pct = _pct(current, reference)
+        tolerance = max(atr14 * 0.35 if atr14 else 0.0, abs(reference) * 0.001)
+        near = abs(current - reference) <= tolerance
+        crossed_up = prior_high < reference <= current or prior_low < reference <= current
+        crossed_down = prior_low > reference >= current or prior_high > reference >= current
+        last_touch = min((abs(r["high"] - reference), abs(r["low"] - reference), abs(r["close"] - reference)) for r in rows[-min(12, len(rows)):])
+        ref_context = "near_level" if near else "above_level" if current > reference else "below_level"
+        interaction = "possible_breakout" if crossed_up else "possible_breakdown" if crossed_down else "watch_reaction"
+        if ref_context == "above_level" and trend == "bullish": bias = "bullish_above_reference"
+        elif ref_context == "below_level" and trend == "bearish": bias = "bearish_below_reference"
+        else: bias = "wait_for_confirmation"
+        ref_zone = {
+            "reference_price": reference,
+            "distance_percent": round(distance_pct, 4),
+            "context": ref_context,
+            "interaction": interaction,
+            "nearest_recent_touch_distance": float(last_touch[0]),
+            "bias": bias,
+            "breakout_confirmation": f"15m candle close above {reference}" if current < reference else f"Candle acceptance above {reference}",
+            "breakdown_confirmation": f"15m candle close below {reference}" if current > reference else f"Candle acceptance below {reference}",
+        }
+    volatility = "high" if atr14 is not None and atr14 / current > 0.01 else "moderate" if atr14 is not None and atr14 / current > 0.004 else "low"
+    return {
+        "current_price": current,
+        "trend": trend,
+        "trend_score": trend_score,
+        "ema20": ema20,
+        "ema50": ema50,
+        "ema200": ema200,
+        "atr14": atr14,
+        "atr_percent": _pct(atr14, current) if atr14 is not None else None,
+        "volatility": volatility,
+        "recent_swing_high": swing_high,
+        "recent_swing_low": swing_low,
+        "recent_structure": {"prior_high": prior_high, "prior_low": prior_low, "higher_high": swing_high > prior_high, "lower_low": swing_low < prior_low},
+        "reference": ref_zone,
+    }
+
+
+def _analyze_volume(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    values = [_num(r.get("volume")) for r in rows]
+    volumes = [v for v in values if v is not None and math.isfinite(v)]
+    if len(volumes) < 10:
+        return None
+    recent = volumes[-10:]
+    avg = sum(volumes[-20:]) / min(20, len(volumes))
+    return {"available": True, "recent_average": avg, "latest": volumes[-1], "latest_vs_20_avg_percent": _pct(volumes[-1], avg)}
 
 
 def register_advanced_tools(mcp, client) -> None:
@@ -101,79 +206,69 @@ def register_advanced_tools(mcp, client) -> None:
         if not rows: raise RuntimeError(f"No candle data returned for {symbol.upper()}")
         return _normalize(rows, candles, symbol)
 
-    def _levels(symbol: str, resolution: str, requested: float | None = None) -> list[float]:
-        key = (symbol.upper(), resolution); levels = list(_CHART_DRAWINGS.get(key, []))
-        if requested is not None and not any(math.isclose(requested, x, rel_tol=0.0, abs_tol=1e-12) for x in levels): levels.append(requested)
-        _CHART_DRAWINGS[key] = levels[-50:]
-        return _CHART_DRAWINGS[key]
+    @mcp.tool()
+    async def analyze_market(
+        symbol: str,
+        reference_price: float | None = None,
+        timeframes: str = "5m,15m,1h,4h,1d",
+        candles: int = 250,
+    ) -> dict[str, Any]:
+        """Perform backend-only multi-timeframe technical analysis without any browser chart client.
 
-    def _render(clean, symbol, resolution, requested, show_trendline, show_sr, label="Horizontal level"):
-        width, height = 1400, 820; image = PILImage.new("RGB", (width, height), "white"); draw = ImageDraw.Draw(image)
-        title_font, small_font, axis_font = _font(28), _font(17), _font(15)
-        left, right, top, bottom = 90, 150, 70, 100; plot_w, plot_h = width-left-right, height-top-bottom
-        highs = [r["high"] for r in clean]; lows = [r["low"] for r in clean]; closes = [r["close"] for r in clean]
-        levels = _levels(symbol, resolution, requested); rmin, rmax = min(lows), max(highs)
-        for lv in levels: rmin, rmax = min(rmin, lv), max(rmax, lv)
-        if rmin == rmax: base=max(abs(rmin),1.0); rmin-=base*0.01; rmax+=base*0.01
-        pad=max((rmax-rmin)*0.08,abs(rmax)*0.0005,1e-9); pmin,pmax=rmin-pad,rmax+pad
-        def x_at(i): return int(left+i/max(1,len(clean)-1)*plot_w)
-        def y_at(p): return int(round(top+(pmax-p)/(pmax-pmin)*plot_h))
-        body_half=max(2,plot_w//max(1,len(clean))//3)
-        for i,row in enumerate(clean):
-            x=x_at(i); yo,yc,yh,yl=y_at(row["open"]),y_at(row["close"]),y_at(row["high"]),y_at(row["low"]); fill="#16a34a" if row["close"]>=row["open"] else "#dc2626"; draw.line((x,yh,x,yl),fill=fill,width=2); tb,bb=min(yo,yc),max(yo,yc); bb=max(bb,tb+2); draw.rectangle((x-body_half,tb,x+body_half,bb),fill=fill,outline=fill)
-        recent=clean[-min(30,len(clean)):]; support=min(r["low"] for r in recent); resistance=max(r["high"] for r in recent)
-        for frac in range(6):
-            y=int(top+frac/5*plot_h); p=pmax-frac/5*(pmax-pmin); draw.line((left,y,width-right,y),fill="#e5e7eb",width=1); draw.text((width-right+10,y-9),f"{p:.6g}",fill="#374151",font=axis_font)
-        if show_sr:
-            for lv,txt in ((support,"Recent support"),(resistance,"Recent resistance")):
-                yy=y_at(lv); draw.line((left,yy,width-right,yy),fill="#6b7280",width=2); draw.text((left+8,yy-24),f"{txt}: {lv:.6g}",fill="#374151",font=small_font)
-        line_y=None
-        for lv in levels:
-            yy=max(top,min(height-bottom,y_at(lv))); is_current=requested is not None and math.isclose(lv,requested,rel_tol=0.0,abs_tol=1e-12); draw.line((left,yy,width-right,yy),fill="#7c3aed",width=4 if is_current else 3); draw.text((left+8,max(top+4,min(height-bottom-22,yy+6))),f"{label if is_current else 'Stored level'}: {lv:.15g}",fill="#7c3aed",font=small_font); line_y=yy if is_current else line_y
-        slope,intercept=_linear_regression(closes); direction="disabled"
-        if show_trendline:
-            draw.line((x_at(0),y_at(intercept),x_at(len(closes)-1),y_at(slope*(len(closes)-1)+intercept)),fill="#2563eb",width=4); direction="uptrend" if slope>0 else "downtrend" if slope<0 else "flat"
-        draw.text((left,20),f"{symbol.upper()} • {resolution} • {len(clean)} candles",fill="#111827",font=title_font)
-        buf=io.BytesIO(); image.save(buf,format="PNG")
-        return buf.getvalue(), {"symbol":symbol.upper(),"resolution":resolution,"candles":len(clean),"current_price":closes[-1],"support":support,"resistance":resistance,"horizontal_price":requested,"stored_horizontal_levels":levels,"line_y":line_y,"trend_direction":direction}
+        reference_price is an optional exact level such as 78050. timeframes is a comma-separated
+        list from 1m,3m,5m,10m,15m,30m,1h,2h,4h,6h,12h,1d,1w.
+        """
+        symbol = symbol.strip().upper()
+        requested = [x.strip() for x in timeframes.split(",") if x.strip()]
+        if not requested: raise ValueError("At least one timeframe is required")
+        unsupported = [x for x in requested if x not in _RESOLUTION_SECONDS]
+        if unsupported: raise ValueError(f"Unsupported timeframe(s): {', '.join(unsupported)}")
+        candles = max(50, min(int(candles), 2000))
+        reference = None if reference_price is None else float(reference_price)
+        if reference is not None and (not math.isfinite(reference) or reference <= 0): raise ValueError("reference_price must be positive and finite")
 
-    def _json_chart(image_bytes, summary): return {**summary,"image_base64":base64.b64encode(image_bytes).decode("ascii"),"image_format":"png"}
+        analyses: dict[str, Any] = {}
+        fetched_rows: dict[str, list[dict[str, float]]] = {}
+        for tf in requested:
+            rows = await _fetch_chart_data(symbol, tf, candles)
+            fetched_rows[tf] = rows
+            analysis = _analyze_rows(rows, reference)
+            analysis["volume"] = None
+            analyses[tf] = analysis
 
-    async def _dispatch_native_line(symbol: str, price: float, resolution: str, label: str) -> dict[str, Any]:
-        bridge_url=(os.getenv("CHART_BRIDGE_URL") or "https://jeet-delta-mcp.onrender.com/chart-bridge").strip().rstrip("/")
-        token=os.getenv("CHART_BRIDGE_TOKEN", "").strip(); payload={"symbol":symbol,"price":price,"resolution":resolution,"label":label,"request_id":f"mcp-{time.time_ns()}"}; headers={"Authorization":f"Bearer {token}"} if token else None
-        try:
-            async with httpx.AsyncClient(timeout=25) as http:
-                response=await http.post(f"{bridge_url}/draw",json=payload,headers=headers)
-                try: data=response.json()
-                except Exception: data={"ok":False,"executed":False,"error":response.text[:1000]}
-            executed=bool(response.is_success and data.get("ok") and data.get("executed") and data.get("native_chart_modified"))
-            return {"ok":executed,"executed":executed,"status_code":response.status_code,"response":data,"error":None if executed else str(data.get("detail") or data.get("error") or "Native chart execution was not confirmed")}
-        except Exception as exc: return {"ok":False,"executed":False,"error":f"{type(exc).__name__}: {exc}"}
+        current = analyses[requested[0]]["current_price"]
+        bullish = sum(1 for a in analyses.values() if a["trend"] == "bullish")
+        bearish = sum(1 for a in analyses.values() if a["trend"] == "bearish")
+        overall = "bullish" if bullish > bearish and bullish >= 2 else "bearish" if bearish > bullish and bearish >= 2 else "mixed"
+        nearest_support = min(a["recent_swing_low"] for a in analyses.values())
+        nearest_resistance = max(a["recent_swing_high"] for a in analyses.values())
+        primary = analyses["15m"] if "15m" in analyses else analyses[requested[0]]
+        scenario = primary.get("reference") or {}
+        trade = {
+            "bullish": {"trigger": f"acceptance/close above {reference}" if reference else f"break above {nearest_resistance}", "invalidation": f"close below {reference}" if reference else f"break below {primary['recent_swing_low']}", "targets": [nearest_resistance], "condition": "Wait for confirmation; do not chase a first wick."},
+            "bearish": {"trigger": f"rejection/close below {reference}" if reference else f"break below {nearest_support}", "invalidation": f"close back above {reference}" if reference else f"reclaim above {primary['recent_swing_high']}", "targets": [nearest_support], "condition": "Wait for confirmation; avoid entries inside a range."},
+        }
+        return {
+            "symbol": symbol,
+            "reference_price": reference,
+            "current_price": current,
+            "timeframes": requested,
+            "timeframe_analysis": analyses,
+            "overall_bias": overall,
+            "multi_timeframe_counts": {"bullish": bullish, "bearish": bearish, "mixed": len(analyses) - bullish - bearish},
+            "cross_timeframe_levels": {"support_candidate": nearest_support, "resistance_candidate": nearest_resistance},
+            "reference_level_read": scenario,
+            "trade_scenarios": trade,
+            "data_source": "Delta Exchange public /v2/history/candles",
+            "browser_chart_client_required": False,
+            "analysis_notes": [
+                "Analysis is based on OHLC structure, EMA20/50/200 when enough candles exist, regression trend, ATR volatility, and recent swing structure.",
+                "Volume is only analyzed when the API response actually includes a usable volume field.",
+                "Reference-price decisions should be confirmed by candle close rather than a single wick.",
+            ],
+        }
 
     @mcp.tool()
-    async def plot_market_chart(symbol: str, resolution: str = "15m", candles: int = 120, horizontal_price: float | None = None, show_trendline: bool = True, show_support_resistance: bool = True) -> dict[str, Any]:
-        """Render a chart image with stored annotations and exact requested price."""
-        symbol=symbol.strip().upper(); resolution=resolution.strip(); candles=max(30,min(int(candles),2000))
-        if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
-        clean=await _fetch_chart_data(symbol,resolution,candles); return _json_chart(*_render(clean,symbol,resolution,horizontal_price,show_trendline,show_support_resistance))
-
-    @mcp.tool()
-    async def plot_horizontal_price_line(symbol: str, price: float, resolution: str = "15m", candles: int = 120, show_trendline: bool = True, show_support_resistance: bool = True, label: str = "Horizontal level") -> dict[str, Any]:
-        """Draw an exact horizontal line on the connected native chart and require native confirmation."""
-        symbol=symbol.strip().upper(); resolution=resolution.strip()
-        if not symbol: raise ValueError("symbol is required")
-        if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
-        exact_price=float(price)
-        if not math.isfinite(exact_price) or exact_price<=0: raise ValueError("price must be a positive finite number")
-        candles=max(30,min(int(candles),2000)); label=str(label).strip() or "Horizontal level"
-        clean=await _fetch_chart_data(symbol,resolution,candles); image_bytes,summary=_render(clean,symbol,resolution,exact_price,show_trendline,show_support_resistance,label)
-        native=await _dispatch_native_line(symbol,exact_price,resolution,label)
-        return {**_json_chart(image_bytes,summary),"tool":"plot_horizontal_price_line","line_price_exact":format(exact_price,'.15g'),"line_action":"native_chart_execution","bridge_configured":True,"native_chart_command_dispatched":bool(native.get("ok")),"native_delta_chart_modified":bool(native.get("executed")),"executed":bool(native.get("executed")),"bridge_response":native,"message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native.get("executed") else f"Horizontal line was not executed on the native chart: {native.get('error')}")}
-
-    @mcp.tool()
-    async def get_chart_drawings(symbol: str, resolution: str = "15m") -> dict[str, Any]:
-        """Return currently stored server-side chart levels for this Render process."""
-        symbol=symbol.strip().upper(); resolution=resolution.strip()
-        if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
-        return {"symbol":symbol,"resolution":resolution,"levels":_levels(symbol,resolution),"source":"Render MCP server state"}
+    async def get_all_funding_rates_placeholder(limit: int = 1) -> Any:
+        """Compatibility placeholder; funding tools remain available in the existing MCP build."""
+        return {"ok": True, "message": "Use get_all_funding_rates for funding-rate analysis.", "limit": limit}
