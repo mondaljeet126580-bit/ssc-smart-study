@@ -5,6 +5,8 @@
 
   const EVENT_IN = 'JEET_DELTA_NATIVE_DRAW_COMMAND';
   const EVENT_OUT = 'JEET_DELTA_NATIVE_DRAW_RESULT';
+  const RETRY_MS = 750;
+  const MAX_RETRIES = 20;
 
   function findWidget() {
     const candidates = [window.tvWidget, window.TradingView?.widget, window.chartWidget, window.widget, window.tv?.widget];
@@ -32,22 +34,27 @@
     const symbol = String(msg.symbol || '').trim().toUpperCase();
     const resolution = String(msg.resolution || '').trim();
     const price = Number(msg.price);
-    if (!symbol || !resolution || !Number.isFinite(price) || price <= 0) throw new Error('Invalid symbol, resolution, or price');
+    if (!symbol || !resolution || !Number.isFinite(price) || price <= 0) {
+      throw new Error('Invalid symbol, resolution, or price');
+    }
 
-    const chart = findChart();
-    if (!chart) throw new Error('Native chart drawing API is unavailable on the active Delta chart');
-
-    const shapeId = await chart.createShape(
-      { time: Math.floor(Date.now() / 1000), price },
-      {
-        shape: 'horizontal_line',
-        text: msg.label || `Horizontal ${price}`,
-        disableSave: false,
-        disableUndo: false,
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+      const chart = findChart();
+      if (chart) {
+        const shapeId = await chart.createShape(
+          { time: Math.floor(Date.now() / 1000), price },
+          {
+            shape: 'horizontal_line',
+            text: msg.label || `Horizontal ${price}`,
+            disableSave: false,
+            disableUndo: false,
+          }
+        );
+        return { native: true, symbol, resolution, price, shape_id: shapeId ?? null };
       }
-    );
-
-    return { native: true, symbol, resolution, price, shape_id: shapeId ?? null };
+      await new Promise(resolve => setTimeout(resolve, RETRY_MS));
+    }
+    throw new Error('Native chart drawing API is unavailable on the active Delta chart');
   }
 
   window.addEventListener('message', async (event) => {
@@ -56,9 +63,9 @@
     const requestId = String(msg.request_id || '');
     try {
       const result = await execute(msg);
-      window.postMessage({ source: EVENT_OUT, ok: true, request_id: requestId, result }, '*');
+      window.postMessage({ source: EVENT_OUT, type: 'draw_result', ok: true, request_id: requestId, result }, '*');
     } catch (error) {
-      window.postMessage({ source: EVENT_OUT, ok: false, request_id: requestId, error: String(error) }, '*');
+      window.postMessage({ source: EVENT_OUT, type: 'draw_result', ok: false, request_id: requestId, error: String(error) }, '*');
     }
   });
 
