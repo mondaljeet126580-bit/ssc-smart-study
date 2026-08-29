@@ -33,22 +33,6 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _funding_value(ticker: dict[str, Any]) -> float | None:
-    for key in ("funding_rate", "fundingRate", "fr"):
-        value = _num(ticker.get(key))
-        if value is not None:
-            return value
-    return None
-
-
-def _funding_symbol(ticker: dict[str, Any]) -> str:
-    return str(ticker.get("symbol") or ticker.get("sy") or "")
-
-
-def _fmt_pct(rate: float | None) -> str | None:
-    return None if rate is None else f"{rate * 100:.6f}%"
-
-
 def _font(size: int):
     try:
         return ImageFont.truetype("DejaVuSans.ttf", size)
@@ -78,9 +62,9 @@ def register_advanced_tools(mcp, client) -> None:
         data = await client.public("GET", "/v2/tickers", {"contract_types": "perpetual_futures"})
         rows = []
         for ticker in _extract_result(data):
-            rate = _funding_value(ticker); symbol = _funding_symbol(ticker)
+            rate = _num(ticker.get("funding_rate") or ticker.get("fundingRate") or ticker.get("fr")); symbol = str(ticker.get("symbol") or ticker.get("sy") or "")
             if rate is None or not symbol: continue
-            rows.append({"symbol": symbol, "funding_rate": rate, "funding_rate_pct": _fmt_pct(rate), "abs_funding_rate": abs(rate), "mark_price": ticker.get("mark_price"), "open_interest": ticker.get("oi"), "volume_24h": ticker.get("volume"), "timestamp": ticker.get("timestamp")})
+            rows.append({"symbol": symbol, "funding_rate": rate, "funding_rate_pct": f"{rate * 100:.6f}%", "abs_funding_rate": abs(rate), "mark_price": ticker.get("mark_price"), "open_interest": ticker.get("oi"), "volume_24h": ticker.get("volume"), "timestamp": ticker.get("timestamp")})
         if sort_mode == "highest_positive": rows.sort(key=lambda x: x["funding_rate"], reverse=True)
         elif sort_mode == "lowest_negative": rows.sort(key=lambda x: x["funding_rate"])
         else: rows.sort(key=lambda x: x["abs_funding_rate"], reverse=True)
@@ -134,48 +118,38 @@ def register_advanced_tools(mcp, client) -> None:
         pad=max((rmax-rmin)*0.08,abs(rmax)*0.0005,1e-9); pmin,pmax=rmin-pad,rmax+pad
         def x_at(i): return int(left+i/max(1,len(clean)-1)*plot_w)
         def y_at(p): return int(round(top+(pmax-p)/(pmax-pmin)*plot_h))
-        for frac in range(6):
-            y=int(top+frac/5*plot_h); p=pmax-frac/5*(pmax-pmin); draw.line((left,y,width-right,y),fill="#e5e7eb",width=1); draw.text((width-right+10,y-9),f"{p:.6g}",fill="#374151",font=axis_font)
-        draw.line((left,top,left,height-bottom),fill="#111827",width=2); draw.line((left,height-bottom,width-right,height-bottom),fill="#111827",width=2)
         body_half=max(2,plot_w//max(1,len(clean))//3)
         for i,row in enumerate(clean):
             x=x_at(i); yo,yc,yh,yl=y_at(row["open"]),y_at(row["close"]),y_at(row["high"]),y_at(row["low"]); fill="#16a34a" if row["close"]>=row["open"] else "#dc2626"; draw.line((x,yh,x,yl),fill=fill,width=2); tb,bb=min(yo,yc),max(yo,yc); bb=max(bb,tb+2); draw.rectangle((x-body_half,tb,x+body_half,bb),fill=fill,outline=fill)
         recent=clean[-min(30,len(clean)):]; support=min(r["low"] for r in recent); resistance=max(r["high"] for r in recent)
+        for frac in range(6):
+            y=int(top+frac/5*plot_h); p=pmax-frac/5*(pmax-pmin); draw.line((left,y,width-right,y),fill="#e5e7eb",width=1); draw.text((width-right+10,y-9),f"{p:.6g}",fill="#374151",font=axis_font)
         if show_sr:
             for lv,txt in ((support,"Recent support"),(resistance,"Recent resistance")):
                 yy=y_at(lv); draw.line((left,yy,width-right,yy),fill="#6b7280",width=2); draw.text((left+8,yy-24),f"{txt}: {lv:.6g}",fill="#374151",font=small_font)
         line_y=None
         for lv in levels:
-            yy=max(top,min(height-bottom,y_at(lv))); is_current=requested is not None and math.isclose(lv,requested,rel_tol=0.0,abs_tol=1e-12); draw.line((left,yy,width-right,yy),fill="#7c3aed",width=4 if is_current else 3); txt=label if is_current else "Stored level"; draw.text((left+8,max(top+4,min(height-bottom-22,yy+6))),f"{txt}: {lv:.15g}",fill="#7c3aed",font=small_font); line_y=yy if is_current else line_y
+            yy=max(top,min(height-bottom,y_at(lv))); is_current=requested is not None and math.isclose(lv,requested,rel_tol=0.0,abs_tol=1e-12); draw.line((left,yy,width-right,yy),fill="#7c3aed",width=4 if is_current else 3); draw.text((left+8,max(top+4,min(height-bottom-22,yy+6))),f"{label if is_current else 'Stored level'}: {lv:.15g}",fill="#7c3aed",font=small_font); line_y=yy if is_current else line_y
         slope,intercept=_linear_regression(closes); direction="disabled"
         if show_trendline:
             draw.line((x_at(0),y_at(intercept),x_at(len(closes)-1),y_at(slope*(len(closes)-1)+intercept)),fill="#2563eb",width=4); direction="uptrend" if slope>0 else "downtrend" if slope<0 else "flat"
         draw.text((left,20),f"{symbol.upper()} • {resolution} • {len(clean)} candles",fill="#111827",font=title_font)
-        trend_pct=(slope*len(closes)/closes[0]*100) if closes[0] else 0.0; draw.text((left,height-70),f"Trend: {direction} | regression slope: {trend_pct:.3f}% across chart",fill="#374151",font=small_font); draw.text((left,height-45),f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",fill="#6b7280",font=small_font)
         buf=io.BytesIO(); image.save(buf,format="PNG")
-        return buf.getvalue(), {"symbol":symbol.upper(),"resolution":resolution,"candles":len(clean),"current_price":closes[-1],"support":support,"resistance":resistance,"horizontal_price":requested,"stored_horizontal_levels":levels,"line_y":line_y,"trend_direction":direction,"trend_slope_percent_over_chart":trend_pct}
+        return buf.getvalue(), {"symbol":symbol.upper(),"resolution":resolution,"candles":len(clean),"current_price":closes[-1],"support":support,"resistance":resistance,"horizontal_price":requested,"stored_horizontal_levels":levels,"line_y":line_y,"trend_direction":direction}
 
-    def _json_chart(image_bytes, summary):
-        return {**summary,"image_base64":base64.b64encode(image_bytes).decode("ascii"),"image_format":"png"}
+    def _json_chart(image_bytes, summary): return {**summary,"image_base64":base64.b64encode(image_bytes).decode("ascii"),"image_format":"png"}
 
     async def _dispatch_native_line(symbol: str, price: float, resolution: str, label: str) -> dict[str, Any]:
-        bridge_url = os.getenv("CHART_BRIDGE_URL", "").strip().rstrip("/")
-        bridge_token = os.getenv("CHART_BRIDGE_TOKEN", "").strip()
-        if not bridge_url:
-            return {"ok": False, "executed": False, "error": "CHART_BRIDGE_URL is not configured"}
-        payload = {"symbol": symbol, "price": price, "resolution": resolution, "label": label, "request_id": f"mcp-{time.time_ns()}"}
-        headers = {"Authorization": f"Bearer {bridge_token}"} if bridge_token else None
+        bridge_url=(os.getenv("CHART_BRIDGE_URL") or "https://jeet-delta-mcp.onrender.com/chart-bridge").strip().rstrip("/")
+        token=os.getenv("CHART_BRIDGE_TOKEN", "").strip(); payload={"symbol":symbol,"price":price,"resolution":resolution,"label":label,"request_id":f"mcp-{time.time_ns()}"}; headers={"Authorization":f"Bearer {token}"} if token else None
         try:
             async with httpx.AsyncClient(timeout=25) as http:
-                response = await http.post(f"{bridge_url}/draw", json=payload, headers=headers)
-            try:
-                data = response.json()
-            except Exception:
-                data = {"ok": False, "executed": False, "error": response.text[:1000]}
-            executed = bool(response.is_success and data.get("ok") and data.get("executed") and data.get("native_chart_modified"))
-            return {"ok": executed, "executed": executed, "status_code": response.status_code, "response": data, "error": None if executed else str(data.get("detail") or data.get("error") or "Native chart execution was not confirmed")}
-        except Exception as exc:
-            return {"ok": False, "executed": False, "error": f"{type(exc).__name__}: {exc}"}
+                response=await http.post(f"{bridge_url}/draw",json=payload,headers=headers)
+                try: data=response.json()
+                except Exception: data={"ok":False,"executed":False,"error":response.text[:1000]}
+            executed=bool(response.is_success and data.get("ok") and data.get("executed") and data.get("native_chart_modified"))
+            return {"ok":executed,"executed":executed,"status_code":response.status_code,"response":data,"error":None if executed else str(data.get("detail") or data.get("error") or "Native chart execution was not confirmed")}
+        except Exception as exc: return {"ok":False,"executed":False,"error":f"{type(exc).__name__}: {exc}"}
 
     @mcp.tool()
     async def plot_market_chart(symbol: str, resolution: str = "15m", candles: int = 120, horizontal_price: float | None = None, show_trendline: bool = True, show_support_resistance: bool = True) -> dict[str, Any]:
@@ -190,25 +164,12 @@ def register_advanced_tools(mcp, client) -> None:
         symbol=symbol.strip().upper(); resolution=resolution.strip()
         if not symbol: raise ValueError("symbol is required")
         if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
-        try: exact_price=float(price)
-        except (TypeError,ValueError) as exc: raise ValueError("price must be a valid number") from exc
+        exact_price=float(price)
         if not math.isfinite(exact_price) or exact_price<=0: raise ValueError("price must be a positive finite number")
         candles=max(30,min(int(candles),2000)); label=str(label).strip() or "Horizontal level"
-        clean=await _fetch_chart_data(symbol,resolution,candles)
-        image_bytes,summary=_render(clean,symbol,resolution,exact_price,show_trendline,show_support_resistance,label)
-        native = await _dispatch_native_line(symbol, exact_price, resolution, label)
-        return {
-            **_json_chart(image_bytes,summary),
-            "tool":"plot_horizontal_price_line",
-            "line_price_exact":format(exact_price,'.15g'),
-            "line_action":"native_chart_execution",
-            "bridge_configured":bool(os.getenv("CHART_BRIDGE_URL", "").strip()),
-            "native_chart_command_dispatched":bool(native.get("ok")),
-            "native_delta_chart_modified":bool(native.get("executed")),
-            "executed":bool(native.get("executed")),
-            "bridge_response":native,
-            "message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native.get("executed") else f"Horizontal line was not executed on the native chart: {native.get('error')}")
-        }
+        clean=await _fetch_chart_data(symbol,resolution,candles); image_bytes,summary=_render(clean,symbol,resolution,exact_price,show_trendline,show_support_resistance,label)
+        native=await _dispatch_native_line(symbol,exact_price,resolution,label)
+        return {**_json_chart(image_bytes,summary),"tool":"plot_horizontal_price_line","line_price_exact":format(exact_price,'.15g'),"line_action":"native_chart_execution","bridge_configured":True,"native_chart_command_dispatched":bool(native.get("ok")),"native_delta_chart_modified":bool(native.get("executed")),"executed":bool(native.get("executed")),"bridge_response":native,"message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native.get("executed") else f"Horizontal line was not executed on the native chart: {native.get('error')}")}
 
     @mcp.tool()
     async def get_chart_drawings(symbol: str, resolution: str = "15m") -> dict[str, Any]:
