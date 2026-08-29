@@ -96,11 +96,7 @@ def register_advanced_tools(mcp, client) -> None:
         if sort_mode not in {"highest_abs", "highest_positive", "lowest_negative"}:
             raise ValueError("sort_mode must be highest_abs, highest_positive, or lowest_negative")
 
-        data = await client.public(
-            "GET",
-            "/v2/tickers",
-            {"contract_types": "perpetual_futures"},
-        )
+        data = await client.public("GET", "/v2/tickers", {"contract_types": "perpetual_futures"})
         tickers = _extract_result(data)
         rows: list[dict[str, Any]] = []
         for ticker in tickers:
@@ -108,18 +104,16 @@ def register_advanced_tools(mcp, client) -> None:
             symbol = _funding_symbol(ticker)
             if rate is None or not symbol:
                 continue
-            rows.append(
-                {
-                    "symbol": symbol,
-                    "funding_rate": rate,
-                    "funding_rate_pct": _fmt_pct(rate),
-                    "abs_funding_rate": abs(rate),
-                    "mark_price": ticker.get("mark_price"),
-                    "open_interest": ticker.get("oi"),
-                    "volume_24h": ticker.get("volume"),
-                    "timestamp": ticker.get("timestamp"),
-                }
-            )
+            rows.append({
+                "symbol": symbol,
+                "funding_rate": rate,
+                "funding_rate_pct": _fmt_pct(rate),
+                "abs_funding_rate": abs(rate),
+                "mark_price": ticker.get("mark_price"),
+                "open_interest": ticker.get("oi"),
+                "volume_24h": ticker.get("volume"),
+                "timestamp": ticker.get("timestamp"),
+            })
 
         if sort_mode == "highest_positive":
             rows.sort(key=lambda x: x["funding_rate"], reverse=True)
@@ -143,11 +137,7 @@ def register_advanced_tools(mcp, client) -> None:
         }
 
     @mcp.tool()
-    async def get_funding_history(
-        symbol: str,
-        resolution: str = "1h",
-        hours: int = 24,
-    ) -> Any:
+    async def get_funding_history(symbol: str, resolution: str = "1h", hours: int = 24) -> Any:
         """Get historical funding-rate candles for one perpetual symbol."""
         resolution = resolution.strip()
         if resolution not in _RESOLUTION_SECONDS:
@@ -155,30 +145,29 @@ def register_advanced_tools(mcp, client) -> None:
         hours = max(1, min(hours, 720))
         now = int(time.time())
         start = now - hours * 3600
-        return await client.public(
-            "GET",
-            "/v2/history/candles",
-            {
-                "resolution": resolution,
-                "symbol": f"FUNDING:{symbol.upper()}",
-                "start": start,
-                "end": now,
-            },
-        )
+        return await client.public("GET", "/v2/history/candles", {
+            "resolution": resolution,
+            "symbol": f"FUNDING:{symbol.upper()}",
+            "start": start,
+            "end": now,
+        })
 
     def _normalize_candle_rows(rows: list[dict[str, Any]], candles: int, symbol: str) -> list[dict[str, float]]:
         clean: list[dict[str, float]] = []
         for row in rows:
             try:
-                clean.append(
-                    {
-                        "time": float(row["time"]),
-                        "open": float(row["open"]),
-                        "high": float(row["high"]),
-                        "low": float(row["low"]),
-                        "close": float(row["close"]),
-                    }
-                )
+                values = {
+                    "time": float(row["time"]),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                }
+                if not all(math.isfinite(v) for v in values.values()):
+                    continue
+                if values["high"] < values["low"]:
+                    continue
+                clean.append(values)
             except (KeyError, TypeError, ValueError):
                 continue
         clean = sorted(clean, key=lambda x: x["time"])[-candles:]
@@ -190,16 +179,12 @@ def register_advanced_tools(mcp, client) -> None:
         step = _RESOLUTION_SECONDS[resolution]
         now = int(time.time())
         start = now - step * candles
-        data = await client.public(
-            "GET",
-            "/v2/history/candles",
-            {
-                "resolution": resolution,
-                "symbol": symbol.upper(),
-                "start": start,
-                "end": now,
-            },
-        )
+        data = await client.public("GET", "/v2/history/candles", {
+            "resolution": resolution,
+            "symbol": symbol.upper(),
+            "start": start,
+            "end": now,
+        })
         rows = _extract_result(data)
         if not rows:
             raise RuntimeError(f"No candle data returned for {symbol.upper()}")
@@ -227,20 +212,34 @@ def register_advanced_tools(mcp, client) -> None:
         highs = [r["high"] for r in clean]
         lows = [r["low"] for r in clean]
         closes = [r["close"] for r in clean]
-        price_min = min(lows)
-        price_max = max(highs)
+        raw_min = min(lows)
+        raw_max = max(highs)
+
+        # Always include the requested line price in the chart range. This guarantees
+        # that a user-selected price is visible even when it is outside recent candles.
+        range_min = raw_min
+        range_max = raw_max
         if horizontal_price is not None:
-            price_min = min(price_min, horizontal_price)
-            price_max = max(price_max, horizontal_price)
-        pad = max((price_max - price_min) * 0.08, price_max * 0.0005, 1e-9)
-        price_min -= pad
-        price_max += pad
+            range_min = min(range_min, horizontal_price)
+            range_max = max(range_max, horizontal_price)
+
+        if range_min == range_max:
+            base = max(abs(range_min), 1.0)
+            range_min -= base * 0.01
+            range_max += base * 0.01
+
+        span = range_max - range_min
+        # Keep enough visual space around an out-of-range requested level without
+        # changing the requested level itself.
+        pad = max(span * 0.08, abs(range_max) * 0.0005, 1e-9)
+        price_min = range_min - pad
+        price_max = range_max + pad
 
         def x_at(i: int) -> int:
             return int(left + (i / max(1, len(clean) - 1)) * plot_w)
 
         def y_at(price: float) -> int:
-            return int(top + (price_max - price) / (price_max - price_min) * plot_h)
+            return int(round(top + (price_max - price) / (price_max - price_min) * plot_h))
 
         for frac in range(0, 6):
             y = int(top + (frac / 5) * plot_h)
@@ -276,9 +275,10 @@ def register_advanced_tools(mcp, client) -> None:
                 draw.text((left + 8, yy - 24), f"{label}: {level:.6g}", fill="#374151", font=small_font)
 
         if horizontal_price is not None:
-            yy = y_at(horizontal_price)
+            yy = max(top, min(height - bottom, y_at(horizontal_price)))
             draw.line((left, yy, width - right, yy), fill="#7c3aed", width=4)
-            draw.text((left + 8, yy + 6), f"{horizontal_label}: {horizontal_price:.6g}", fill="#7c3aed", font=small_font)
+            draw.text((left + 8, max(top + 4, min(height - bottom - 22, yy + 6))),
+                      f"{horizontal_label}: {horizontal_price:.10g}", fill="#7c3aed", font=small_font)
 
         slope, intercept = _linear_regression(closes)
         if show_trendline:
@@ -328,14 +328,7 @@ def register_advanced_tools(mcp, client) -> None:
             raise ValueError(f"Unsupported resolution: {resolution}")
         candles = max(30, min(candles, 2000))
         clean = await _fetch_chart_data(symbol, resolution, candles)
-        image_bytes, summary = _render_market_chart(
-            clean,
-            symbol,
-            resolution,
-            horizontal_price,
-            show_trendline,
-            show_support_resistance,
-        )
+        image_bytes, summary = _render_market_chart(clean, symbol, resolution, horizontal_price, show_trendline, show_support_resistance)
         return [Image(data=image_bytes, format="png"), summary]
 
     @mcp.tool()
@@ -350,8 +343,8 @@ def register_advanced_tools(mcp, client) -> None:
     ) -> list[Any]:
         """Plot a user-specified horizontal price line on the requested Delta Exchange chart.
 
-        Example: symbol=BTCUSD, price=80500 plots a horizontal line at 80500 on the BTCUSD chart.
-        Works for BTCUSD, ETHUSD, and other Delta Exchange symbols available through the public candle API.
+        The price is used exactly as supplied. The chart range is automatically expanded
+        when necessary so the line remains visible even outside the recent candle range.
         """
         symbol = symbol.strip().upper()
         resolution = resolution.strip()
@@ -378,12 +371,10 @@ def register_advanced_tools(mcp, client) -> None:
             show_support_resistance,
             horizontal_label=label,
         )
-        summary.update(
-            {
-                "tool": "plot_horizontal_price_line",
-                "line_price": price,
-                "line_label": label,
-                "message": f"Horizontal price line plotted at {price:.10g} on {symbol}.",
-            }
-        )
+        summary.update({
+            "tool": "plot_horizontal_price_line",
+            "line_price": price,
+            "line_label": label,
+            "message": f"Horizontal price line plotted at {price:.10g} on {symbol}.",
+        })
         return [Image(data=image_bytes, format="png"), summary]
