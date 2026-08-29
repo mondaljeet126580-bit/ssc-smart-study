@@ -8,6 +8,7 @@
   let reconnectTimer = null;
   let bridgeUrl = DEFAULT_BRIDGE;
   let bridgeToken = '';
+  let connected = false;
 
   function getCandidates() {
     const values = [];
@@ -48,16 +49,28 @@
 
     const shapeId = await chart.createShape(
       { time: Math.floor(Date.now() / 1000), price },
-      { shape: 'horizontal_line', text: msg.label || `Horizontal ${price}`, disableSave: false, disableUndo: false }
+      {
+        shape: 'horizontal_line',
+        text: msg.label || `Horizontal ${price}`,
+        disableSave: false,
+        disableUndo: false,
+      }
     );
 
     return { native: true, symbol, price, shape_id: shapeId ?? null };
   }
 
+  function postStatus() {
+    window.postMessage({
+      source: 'JEET_DELTA_BRIDGE_MAIN',
+      type: 'status',
+      connected,
+      native_chart_api: !!findChartApi(),
+    }, '*');
+  }
+
   function sendResult(payload) {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(payload));
-    }
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
     window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'draw_result', ...payload }, '*');
   }
 
@@ -68,7 +81,10 @@
     socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
-      window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'status', connected: true }, '*');
+      connected = true;
+      postStatus();
+      // Ask the isolated content script to resend configuration in case MAIN loaded first.
+      window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'request_config' }, '*');
     };
 
     socket.onmessage = async (event) => {
@@ -84,7 +100,8 @@
     };
 
     socket.onclose = () => {
-      window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type: 'status', connected: false }, '*');
+      connected = false;
+      postStatus();
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 2000);
     };
@@ -101,4 +118,5 @@
   });
 
   connect();
+  postStatus();
 })();
