@@ -4,6 +4,8 @@
   window.__JEET_DELTA_BRIDGE_MAIN__ = true;
 
   const DEFAULT_BRIDGE = 'https://jeet-delta-mcp.onrender.com/chart-bridge';
+  const COMMAND_EVENT = 'JEET_DELTA_NATIVE_CHART_COMMAND';
+  const RESULT_EVENT = 'JEET_DELTA_NATIVE_CHART_RESULT';
   let socket = null;
   let reconnectTimer = null;
   let bridgeUrl = DEFAULT_BRIDGE;
@@ -11,12 +13,8 @@
   let connected = false;
   let configReady = false;
 
-  function postMessage(type, payload = {}) {
+  function post(type, payload = {}) {
     window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type, ...payload }, '*');
-  }
-
-  function requestConfig() {
-    postMessage('request_config');
   }
 
   function connect() {
@@ -27,29 +25,39 @@
 
     socket.onopen = () => {
       connected = true;
-      postMessage('status', { connected, config_ready: configReady });
+      post('status', { connected, config_ready: configReady });
     };
 
     socket.onmessage = (event) => {
       let msg;
       try { msg = JSON.parse(event.data); } catch (_) { return; }
       if (msg.action !== 'draw_horizontal_line') return;
-      // Native chart access is deliberately isolated in MAIN-world page-bridge.js.
-      // The content script receives the command and forwards it into that bridge.
-      postMessage('draw_horizontal_line', { command: msg });
+      window.postMessage({ source: COMMAND_EVENT, type: 'draw_horizontal_line', ...msg }, '*');
     };
 
     socket.onclose = () => {
       connected = false;
-      postMessage('status', { connected, config_ready: configReady });
+      post('status', { connected, config_ready: configReady });
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 2000);
     };
 
     socket.onerror = () => {
       connected = false;
-      postMessage('status', { connected, config_ready: configReady });
+      post('status', { connected, config_ready: configReady });
     };
+  }
+
+  function sendResult(msg) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        action: 'draw_result',
+        ok: !!msg.ok,
+        request_id: msg.request_id,
+        result: msg.result,
+        error: msg.error,
+      }));
+    }
   }
 
   window.addEventListener('message', (event) => {
@@ -65,21 +73,12 @@
     }
 
     if (msg.source === 'JEET_DELTA_BRIDGE_CONTENT' && msg.type === 'request_config') {
-      requestConfig();
+      post('request_config');
       return;
     }
 
-    if (msg.source === 'JEET_DELTA_BRIDGE_CONTENT' && msg.type === 'draw_result') {
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          action: 'draw_result',
-          ok: !!msg.ok,
-          request_id: msg.request_id,
-          result: msg.result,
-          error: msg.error,
-        }));
-      }
-      return;
+    if (msg.source === RESULT_EVENT && msg.type === 'draw_result') {
+      sendResult(msg);
     }
   });
 
