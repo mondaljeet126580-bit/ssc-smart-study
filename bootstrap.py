@@ -16,6 +16,11 @@ mcp_app = mcp.streamable_http_app(
 )
 
 app = FastAPI()
+
+# Expose both spellings. Some MCP clients normalize the configured URL to
+# `/mcp/`, while others keep `/mcp`. Mounting both avoids a trailing-slash
+# 404 without relying on an HTTP redirect that may be mishandled for POST.
+app.mount("/mcp/", mcp_app)
 app.mount("/mcp", mcp_app)
 app.mount("/chart-bridge", chart_bridge.app)
 app.add_middleware(BearerTokenMiddleware)
