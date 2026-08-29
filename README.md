@@ -13,6 +13,12 @@ Public market tools:
 - `get_candles`
 - `get_public_trades`
 
+Advanced market/chart tools:
+- `get_all_funding_rates`
+- `get_funding_history`
+- `plot_market_chart`
+- `plot_horizontal_price_line` — plots a user-specified horizontal price level on a real Delta OHLC chart (for example, BTCUSD at 80500 or ETHUSD at 3200)
+
 Account tools (API key + secret required):
 - `get_balance`
 - `get_positions`
@@ -29,6 +35,27 @@ Trading tools (read-only/dry-run by default):
 - `edit_order`
 - `cancel_order`
 - `set_order_leverage`
+
+## Charting
+
+`plot_horizontal_price_line` accepts:
+- `symbol`: Delta symbol such as `BTCUSD` or `ETHUSD`
+- `price`: the exact positive price where the horizontal line should be drawn
+- `resolution`: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d`, or `1w`
+- `candles`: number of candles to render (30–2000)
+- `show_trendline`: whether to keep the automatic regression trendline
+- `show_support_resistance`: whether to keep recent support/resistance levels
+- `label`: optional text shown next to the horizontal line
+
+Example natural-language request:
+
+```text
+Plot BTCUSD at 80500 with a horizontal price line.
+```
+
+The MCP client can map that request to `plot_horizontal_price_line(symbol="BTCUSD", price=80500)`.
+
+The existing `plot_market_chart` tool remains available and its existing `horizontal_price` parameter is preserved.
 
 ## Security model
 
