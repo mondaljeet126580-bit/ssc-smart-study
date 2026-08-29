@@ -11,9 +11,8 @@ from typing import Any
 from PIL import Image as PILImage, ImageDraw, ImageFont
 
 _RESOLUTION_SECONDS = {
-    "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600,
-    "12h": 43200, "1d": 86400, "1w": 604800,
+    "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+    "2h": 7200, "4h": 14400, "6h": 21600, "12h": 43200, "1d": 86400, "1w": 604800,
 }
 
 _CHART_DRAWINGS: dict[tuple[str, str], list[float]] = {}
@@ -167,11 +166,10 @@ def register_advanced_tools(mcp, client) -> None:
 
     @mcp.tool()
     async def plot_horizontal_price_line(symbol: str, price: float, resolution: str = "15m", candles: int = 120, show_trendline: bool = True, show_support_resistance: bool = True, label: str = "Horizontal level") -> dict[str, Any]:
-        """Request an exact horizontal line and dispatch it to an optional client-side chart bridge.
+        """Request an exact native horizontal line and report success only after browser confirmation.
 
-        The server persists the requested level and renders a fallback chart. When a chart
-        bridge is connected, the same command is also forwarded to that client so a native
-        chart adapter can draw the line on the user's open chart.
+        The server keeps a fallback rendered chart for diagnostics. Native success is only true
+        when the connected browser chart bridge confirms the native drawing operation.
         """
         symbol=symbol.strip().upper(); resolution=resolution.strip()
         if not symbol: raise ValueError("symbol is required")
@@ -184,32 +182,38 @@ def register_advanced_tools(mcp, client) -> None:
         image_bytes,summary=_render(clean,symbol,resolution,exact_price,show_trendline,show_support_resistance,label)
         bridge_url=os.getenv("CHART_BRIDGE_URL", "").strip().rstrip("/")
         bridge_token=os.getenv("CHART_BRIDGE_TOKEN", "").strip()
-        dispatched=False; dispatch_error=None
+        native_ok=False; native_error=None; bridge_response=None
         if bridge_url:
             try:
                 import httpx
                 headers={"Authorization":f"Bearer {bridge_token}"} if bridge_token else None
-                async with httpx.AsyncClient(timeout=8) as http:
-                    response=await http.post(f"{bridge_url}/draw", json={"symbol":symbol,"price":exact_price,"label":label}, headers=headers)
-                    if response.is_error: dispatch_error=f"Bridge HTTP {response.status_code}: {response.text[:500]}"
-                    else: dispatched=True
+                async with httpx.AsyncClient(timeout=20) as http:
+                    response=await http.post(f"{bridge_url}/draw",json={"symbol":symbol,"price":exact_price,"label":label,"resolution":resolution},headers=headers)
+                    try: bridge_response=response.json()
+                    except Exception: bridge_response={"ok":False,"executed":False,"error":response.text[:1000]}
+                    native_ok=bool(response.is_success and bridge_response.get("ok") and bridge_response.get("executed") and bridge_response.get("native_chart_modified"))
+                    if not native_ok: native_error=str(bridge_response.get("error") or bridge_response.get("detail") or "Native chart execution was not confirmed")
             except Exception as exc:
-                dispatch_error=f"{type(exc).__name__}: {exc}"
+                native_error=f"{type(exc).__name__}: {exc}"
+        else:
+            native_error="CHART_BRIDGE_URL is not configured"
         return {
             **_json_chart(image_bytes,summary),
             "tool":"plot_horizontal_price_line",
             "line_price_exact":format(exact_price,'.15g'),
-            "line_action":"client_bridge_dispatch" if bridge_url else "server_side_annotation",
-            "native_chart_command_dispatched":dispatched,
-            "native_delta_chart_modified":dispatched,
+            "line_action":"native_chart_execution",
             "bridge_configured":bool(bridge_url),
-            "bridge_error":dispatch_error,
-            "message":f"Horizontal line command prepared at exactly {format(exact_price,'.15g')} on {symbol}.",
+            "native_chart_command_dispatched":native_ok,
+            "native_delta_chart_modified":native_ok,
+            "executed":native_ok,
+            "bridge_response":bridge_response,
+            "bridge_error":native_error,
+            "message":(f"Horizontal line executed at exactly {format(exact_price,'.15g')} on {symbol} {resolution}." if native_ok else f"Horizontal line was NOT executed on the native chart at {format(exact_price,'.15g')} on {symbol} {resolution}.")
         }
 
     @mcp.tool()
     async def get_chart_drawings(symbol: str, resolution: str = "15m") -> dict[str, Any]:
-        """Return currently stored chart levels for this Render process."""
+        """Return currently stored server-side chart levels for this Render process."""
         symbol=symbol.strip().upper(); resolution=resolution.strip()
         if resolution not in _RESOLUTION_SECONDS: raise ValueError(f"Unsupported resolution: {resolution}")
         return {"symbol":symbol,"resolution":resolution,"levels":_levels(symbol,resolution),"source":"Render MCP server state"}
