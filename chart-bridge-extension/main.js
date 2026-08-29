@@ -10,30 +10,10 @@
   let reconnectTimer = null;
   let bridgeUrl = DEFAULT_BRIDGE;
   let bridgeToken = '';
+  let configReady = false;
 
   function post(type, payload = {}) {
     window.postMessage({ source: 'JEET_DELTA_BRIDGE_MAIN', type, ...payload }, '*');
-  }
-
-  function connect() {
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-    const base = bridgeUrl.replace(/\/$/, '');
-    const wsUrl = base.replace(/^http/, 'ws') + '/ws' + (bridgeToken ? `?token=${encodeURIComponent(bridgeToken)}` : '');
-    socket = new WebSocket(wsUrl);
-
-    socket.onopen = () => post('status', { connected: true });
-    socket.onmessage = (event) => {
-      let msg;
-      try { msg = JSON.parse(event.data); } catch (_) { return; }
-      if (msg.action !== 'draw_horizontal_line') return;
-      window.postMessage({ source: COMMAND_EVENT, type: 'draw_horizontal_line', ...msg }, '*');
-    };
-    socket.onclose = () => {
-      post('status', { connected: false });
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 2000);
-    };
-    socket.onerror = () => post('status', { connected: false });
   }
 
   function sendResult(msg) {
@@ -47,12 +27,34 @@
     }));
   }
 
+  function connect() {
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+    const base = bridgeUrl.replace(/\/$/, '');
+    const wsUrl = base.replace(/^http/, 'ws') + '/ws' + (bridgeToken ? `?token=${encodeURIComponent(bridgeToken)}` : '');
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => post('status', { connected: true, config_ready: configReady });
+    socket.onmessage = (event) => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch (_) { return; }
+      if (msg.action !== 'draw_horizontal_line') return;
+      window.postMessage({ source: COMMAND_EVENT, type: 'draw_horizontal_line', ...msg }, '*');
+    };
+    socket.onclose = () => {
+      post('status', { connected: false, config_ready: configReady });
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2000);
+    };
+    socket.onerror = () => post('status', { connected: false, config_ready: configReady });
+  }
+
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
     const msg = event.data;
     if (msg.source === 'JEET_DELTA_BRIDGE_EXTENSION' && msg.type === 'config') {
       bridgeUrl = String(msg.bridgeUrl || DEFAULT_BRIDGE).trim().replace(/\/$/, '');
       bridgeToken = String(msg.bridgeToken || '');
+      configReady = true;
       connect();
       return;
     }
