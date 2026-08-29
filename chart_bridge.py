@@ -8,13 +8,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 
-app = FastAPI(title="Jeet Delta Chart Bridge", version="1.1.0")
+app = FastAPI(title="Jeet Delta Chart Bridge", version="1.2.0")
 ACCESS_TOKEN = os.getenv("CHART_BRIDGE_TOKEN", "").strip()
 _clients: set[WebSocket] = set()
 _pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+_last_result: dict[str, Any] = {}
 
 HTML = """<!doctype html><html><body style='font-family:system-ui;background:#111;color:#eee;padding:20px'>
-<h2>Jeet Delta Chart Bridge</h2><p id='s'>Bridge ready. Keep this tab open on the Delta chart page.</p>
+<h2>Jeet Delta Chart Bridge</h2><p id='s'>Bridge ready. Keep this page open on the Delta chart tab/device.</p>
 <script>
 const token=new URLSearchParams(location.search).get('token')||'';
 let ws;
@@ -24,15 +25,15 @@ function connect(){
  ws.onopen=()=>document.getElementById('s').textContent='Bridge connected and listening';
  ws.onclose=()=>{document.getElementById('s').textContent='Disconnected; retrying…';setTimeout(connect,1500)};
  ws.onmessage=e=>{
-  const m=JSON.parse(e.data);
+  let m; try{m=JSON.parse(e.data)}catch{return}
   if(m.action==='draw_horizontal_line'){
-   if(typeof window.deltaChartBridgeDraw==='function'){
-    Promise.resolve(window.deltaChartBridgeDraw(m))
-      .then(result=>ws.send(JSON.stringify({action:'draw_result',ok:true,request_id:m.request_id,result:result||{}})))
-      .catch(err=>ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:String(err)})));
-   } else {
-    ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:'No native chart adapter installed in this chart frame'}));
+   if(typeof window.deltaChartBridgeDraw!=='function'){
+    ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:'Native chart adapter is not installed'}));
+    return;
    }
+   Promise.resolve(window.deltaChartBridgeDraw(m))
+    .then(result=>ws.send(JSON.stringify({action:'draw_result',ok:true,request_id:m.request_id,result:result||{}})))
+    .catch(err=>ws.send(JSON.stringify({action:'draw_result',ok:false,request_id:m.request_id,error:String(err)})));
   }
  };
 }
@@ -64,6 +65,7 @@ async def health() -> JSONResponse:
         "token_configured": bool(ACCESS_TOKEN),
         "connected_clients": len(_clients),
         "pending_commands": len(_pending),
+        "last_result": _last_result,
     })
 
 
@@ -73,13 +75,24 @@ async def bridge(request: Request) -> HTMLResponse:
     return HTMLResponse(HTML)
 
 
+@app.get("/status")
+async def status(request: Request) -> JSONResponse:
+    _check_auth(request)
+    return JSONResponse({
+        "ok": True,
+        "connected_clients": len(_clients),
+        "pending_commands": len(_pending),
+        "last_result": _last_result,
+    })
+
+
 @app.post("/draw")
 async def draw(request: Request) -> JSONResponse:
     _check_auth(request)
     body = await request.json()
     symbol, price = _validate(body.get("symbol"), body.get("price"))
     if not _clients:
-        raise HTTPException(status_code=503, detail="No browser chart client is connected")
+        raise HTTPException(status_code=503, detail="No browser chart client is connected. Open the bridge page in the chart browser context first.")
 
     request_id = str(body.get("request_id") or uuid.uuid4().hex)
     command = {
@@ -105,15 +118,17 @@ async def draw(request: Request) -> JSONResponse:
         raise HTTPException(status_code=503, detail="No live browser chart client could receive the command")
 
     try:
-        result = await asyncio.wait_for(future, timeout=12.0)
+        result = await asyncio.wait_for(future, timeout=15.0)
     except asyncio.TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="Browser chart client did not confirm native drawing within 12 seconds") from exc
-    finally:
         _pending.pop(request_id, None)
+        raise HTTPException(status_code=504, detail="Browser chart client did not confirm native drawing within 15 seconds") from exc
 
+    _pending.pop(request_id, None)
+    _last_result.clear()
+    _last_result.update({"request_id": request_id, "result": result})
     if not result.get("ok"):
         raise HTTPException(status_code=422, detail=str(result.get("error") or "Native chart drawing failed"))
-    return JSONResponse({"ok": True, "native_chart_modified": True, "dispatched_to_clients": sent, "request_id": request_id, "result": result.get("result", {})})
+    return JSONResponse({"ok": True, "executed": True, "native_chart_modified": True, "dispatched_to_clients": sent, "request_id": request_id, "result": result.get("result", {})})
 
 
 @app.websocket("/ws")
