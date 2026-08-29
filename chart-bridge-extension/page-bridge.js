@@ -3,8 +3,8 @@
   if (window.__JEET_DELTA_NATIVE_PAGE_BRIDGE__) return;
   window.__JEET_DELTA_NATIVE_PAGE_BRIDGE__ = true;
 
-  const COMMAND_EVENT = 'JEET_DELTA_NATIVE_CHART_COMMAND';
-  const RESULT_EVENT = 'JEET_DELTA_NATIVE_CHART_RESULT';
+  const EVENT_IN = 'JEET_DELTA_NATIVE_DRAW_COMMAND';
+  const EVENT_OUT = 'JEET_DELTA_NATIVE_DRAW_RESULT';
 
   function findWidget() {
     const candidates = [window.tvWidget, window.TradingView?.widget, window.chartWidget, window.widget, window.tv?.widget];
@@ -28,35 +28,39 @@
     return null;
   }
 
-  async function draw(msg) {
+  async function execute(msg) {
     const symbol = String(msg.symbol || '').trim().toUpperCase();
+    const resolution = String(msg.resolution || '').trim();
     const price = Number(msg.price);
-    if (!symbol || !Number.isFinite(price) || price <= 0) throw new Error('Invalid symbol or price');
+    if (!symbol || !resolution || !Number.isFinite(price) || price <= 0) throw new Error('Invalid symbol, resolution, or price');
 
     const chart = findChart();
-    if (!chart) throw new Error('Native chart drawing API is unavailable on this Delta chart');
+    if (!chart) throw new Error('Native chart drawing API is unavailable on the active Delta chart');
 
     const shapeId = await chart.createShape(
       { time: Math.floor(Date.now() / 1000), price },
-      { shape: 'horizontal_line', text: msg.label || `Horizontal ${price}`, disableSave: false, disableUndo: false }
+      {
+        shape: 'horizontal_line',
+        text: msg.label || `Horizontal ${price}`,
+        disableSave: false,
+        disableUndo: false,
+      }
     );
 
-    return { native: true, symbol, price, shape_id: shapeId ?? null };
+    return { native: true, symbol, resolution, price, shape_id: shapeId ?? null };
   }
 
   window.addEventListener('message', async (event) => {
-    if (event.source !== window || !event.data) return;
+    if (event.source !== window || !event.data || event.data.source !== EVENT_IN) return;
     const msg = event.data;
-    if (msg.source !== COMMAND_EVENT || msg.type !== 'draw_horizontal_line') return;
-
     const requestId = String(msg.request_id || '');
     try {
-      const result = await draw(msg);
-      window.postMessage({ source: RESULT_EVENT, type: 'draw_result', ok: true, request_id: requestId, result }, '*');
+      const result = await execute(msg);
+      window.postMessage({ source: EVENT_OUT, ok: true, request_id: requestId, result }, '*');
     } catch (error) {
-      window.postMessage({ source: RESULT_EVENT, type: 'draw_result', ok: false, request_id: requestId, error: String(error) }, '*');
+      window.postMessage({ source: EVENT_OUT, ok: false, request_id: requestId, error: String(error) }, '*');
     }
   });
 
-  window.dispatchEvent(new CustomEvent('JEET_DELTA_BRIDGE_READY'));
+  window.dispatchEvent(new CustomEvent('JEET_DELTA_NATIVE_BRIDGE_READY'));
 })();
