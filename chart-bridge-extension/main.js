@@ -18,20 +18,20 @@
   function connect() {
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
     const base = bridgeUrl.replace(/\/$/, '');
-    const wsUrl = base.replace(/^http/, 'ws') + '/ws' + (bridgeToken ? `?token=${encodeURIComponent(bridgeToken)}` : '');
+    const wsUrl = base.replace(/^http/, 'ws') + '/ws?client=jeet-delta' + (bridgeToken ? `&token=${encodeURIComponent(bridgeToken)}` : '');
     socket = new WebSocket(wsUrl);
-    socket.onopen = () => post('status', { connected: true });
+    socket.onopen = () => post('status', { connected: true, bridgeUrl: base });
     socket.onmessage = (event) => {
       let msg;
       try { msg = JSON.parse(event.data); } catch (_) { return; }
-      if (msg.action === 'draw_horizontal_line') {
-        window.postMessage({ source: COMMAND_EVENT, type: 'draw_horizontal_line', ...msg }, '*');
-      }
+      if (msg.action === 'bridge_ready' || msg.action === 'heartbeat_ack') return;
+      if (msg.action !== 'draw_horizontal_line') return;
+      window.postMessage({ source: COMMAND_EVENT, type: 'draw_horizontal_line', ...msg }, '*');
     };
     socket.onclose = () => {
       post('status', { connected: false });
       clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 2000);
+      reconnectTimer = setTimeout(connect, 1200);
     };
     socket.onerror = () => post('status', { connected: false });
   }
