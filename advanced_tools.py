@@ -166,40 +166,7 @@ def register_advanced_tools(mcp, client) -> None:
             },
         )
 
-    @mcp.tool()
-    async def plot_market_chart(
-        symbol: str,
-        resolution: str = "15m",
-        candles: int = 120,
-        horizontal_price: float | None = None,
-        show_trendline: bool = True,
-        show_support_resistance: bool = True,
-    ) -> list[Any]:
-        """Create a real chart image from Delta candles with optional horizontal level and automatic trendline.
-
-        The returned MCP image can be rendered by clients that support image tool results.
-        """
-        resolution = resolution.strip()
-        if resolution not in _RESOLUTION_SECONDS:
-            raise ValueError(f"Unsupported resolution: {resolution}")
-        candles = max(30, min(candles, 2000))
-        step = _RESOLUTION_SECONDS[resolution]
-        now = int(time.time())
-        start = now - step * candles
-        data = await client.public(
-            "GET",
-            "/v2/history/candles",
-            {
-                "resolution": resolution,
-                "symbol": symbol.upper(),
-                "start": start,
-                "end": now,
-            },
-        )
-        rows = _extract_result(data)
-        if not rows:
-            raise RuntimeError(f"No candle data returned for {symbol.upper()}")
-
+    def _normalize_candle_rows(rows: list[dict[str, Any]], candles: int, symbol: str) -> list[dict[str, float]]:
         clean: list[dict[str, float]] = []
         for row in rows:
             try:
@@ -217,7 +184,36 @@ def register_advanced_tools(mcp, client) -> None:
         clean = sorted(clean, key=lambda x: x["time"])[-candles:]
         if len(clean) < 5:
             raise RuntimeError(f"Not enough valid OHLC candles returned for {symbol.upper()}")
+        return clean
 
+    async def _fetch_chart_data(symbol: str, resolution: str, candles: int) -> list[dict[str, float]]:
+        step = _RESOLUTION_SECONDS[resolution]
+        now = int(time.time())
+        start = now - step * candles
+        data = await client.public(
+            "GET",
+            "/v2/history/candles",
+            {
+                "resolution": resolution,
+                "symbol": symbol.upper(),
+                "start": start,
+                "end": now,
+            },
+        )
+        rows = _extract_result(data)
+        if not rows:
+            raise RuntimeError(f"No candle data returned for {symbol.upper()}")
+        return _normalize_candle_rows(rows, candles, symbol)
+
+    def _render_market_chart(
+        clean: list[dict[str, float]],
+        symbol: str,
+        resolution: str,
+        horizontal_price: float | None,
+        show_trendline: bool,
+        show_support_resistance: bool,
+        horizontal_label: str = "Horizontal level",
+    ) -> tuple[bytes, dict[str, Any]]:
         width, height = 1400, 820
         image = PILImage.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
@@ -233,6 +229,9 @@ def register_advanced_tools(mcp, client) -> None:
         closes = [r["close"] for r in clean]
         price_min = min(lows)
         price_max = max(highs)
+        if horizontal_price is not None:
+            price_min = min(price_min, horizontal_price)
+            price_max = max(price_max, horizontal_price)
         pad = max((price_max - price_min) * 0.08, price_max * 0.0005, 1e-9)
         price_min -= pad
         price_max += pad
@@ -243,7 +242,6 @@ def register_advanced_tools(mcp, client) -> None:
         def y_at(price: float) -> int:
             return int(top + (price_max - price) / (price_max - price_min) * plot_h)
 
-        # Grid and labels.
         for frac in range(0, 6):
             y = int(top + (frac / 5) * plot_h)
             price = price_max - (frac / 5) * (price_max - price_min)
@@ -252,7 +250,6 @@ def register_advanced_tools(mcp, client) -> None:
         draw.line((left, top, left, height - bottom), fill="#111827", width=2)
         draw.line((left, height - bottom, width - right, height - bottom), fill="#111827", width=2)
 
-        candle_gap = max(1, plot_w // max(1, len(clean)) // 5)
         body_half = max(2, plot_w // max(1, len(clean)) // 3)
         for i, row in enumerate(clean):
             x = x_at(i)
@@ -269,7 +266,6 @@ def register_advanced_tools(mcp, client) -> None:
                 bot_body = top_body + 2
             draw.rectangle((x - body_half, top_body, x + body_half, bot_body), fill=fill, outline=fill)
 
-        # Automatic support/resistance from the recent range.
         recent = clean[-min(30, len(clean)):]
         support = min(r["low"] for r in recent)
         resistance = max(r["high"] for r in recent)
@@ -279,13 +275,11 @@ def register_advanced_tools(mcp, client) -> None:
                 draw.line((left, yy, width - right, yy), fill="#6b7280", width=2)
                 draw.text((left + 8, yy - 24), f"{label}: {level:.6g}", fill="#374151", font=small_font)
 
-        # User-requested horizontal level.
         if horizontal_price is not None:
             yy = y_at(horizontal_price)
             draw.line((left, yy, width - right, yy), fill="#7c3aed", width=4)
-            draw.text((left + 8, yy + 6), f"Horizontal level: {horizontal_price:.6g}", fill="#7c3aed", font=small_font)
+            draw.text((left + 8, yy + 6), f"{horizontal_label}: {horizontal_price:.6g}", fill="#7c3aed", font=small_font)
 
-        # Linear trendline over closes.
         slope, intercept = _linear_regression(closes)
         if show_trendline:
             y1 = y_at(intercept)
@@ -314,4 +308,82 @@ def register_advanced_tools(mcp, client) -> None:
             "trend_direction": direction,
             "trend_slope_percent_over_chart": trend_pct,
         }
-        return [Image(data=buf.getvalue(), format="png"), summary]
+        return buf.getvalue(), summary
+
+    @mcp.tool()
+    async def plot_market_chart(
+        symbol: str,
+        resolution: str = "15m",
+        candles: int = 120,
+        horizontal_price: float | None = None,
+        show_trendline: bool = True,
+        show_support_resistance: bool = True,
+    ) -> list[Any]:
+        """Create a real chart image from Delta candles with optional horizontal level and automatic trendline.
+
+        The returned MCP image can be rendered by clients that support image tool results.
+        """
+        resolution = resolution.strip()
+        if resolution not in _RESOLUTION_SECONDS:
+            raise ValueError(f"Unsupported resolution: {resolution}")
+        candles = max(30, min(candles, 2000))
+        clean = await _fetch_chart_data(symbol, resolution, candles)
+        image_bytes, summary = _render_market_chart(
+            clean,
+            symbol,
+            resolution,
+            horizontal_price,
+            show_trendline,
+            show_support_resistance,
+        )
+        return [Image(data=image_bytes, format="png"), summary]
+
+    @mcp.tool()
+    async def plot_horizontal_price_line(
+        symbol: str,
+        price: float,
+        resolution: str = "15m",
+        candles: int = 120,
+        show_trendline: bool = True,
+        show_support_resistance: bool = True,
+        label: str = "Horizontal level",
+    ) -> list[Any]:
+        """Plot a user-specified horizontal price line on the requested Delta Exchange chart.
+
+        Example: symbol=BTCUSD, price=80500 plots a horizontal line at 80500 on the BTCUSD chart.
+        Works for BTCUSD, ETHUSD, and other Delta Exchange symbols available through the public candle API.
+        """
+        symbol = symbol.strip().upper()
+        resolution = resolution.strip()
+        if not symbol:
+            raise ValueError("symbol is required.")
+        if resolution not in _RESOLUTION_SECONDS:
+            raise ValueError(f"Unsupported resolution: {resolution}")
+        try:
+            price = float(price)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("price must be a valid number.") from exc
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError("price must be a positive finite number.")
+        candles = max(30, min(int(candles), 2000))
+        label = str(label).strip() or "Horizontal level"
+
+        clean = await _fetch_chart_data(symbol, resolution, candles)
+        image_bytes, summary = _render_market_chart(
+            clean,
+            symbol,
+            resolution,
+            price,
+            show_trendline,
+            show_support_resistance,
+            horizontal_label=label,
+        )
+        summary.update(
+            {
+                "tool": "plot_horizontal_price_line",
+                "line_price": price,
+                "line_label": label,
+                "message": f"Horizontal price line plotted at {price:.10g} on {symbol}.",
+            }
+        )
+        return [Image(data=image_bytes, format="png"), summary]
