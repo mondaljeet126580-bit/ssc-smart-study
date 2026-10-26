@@ -20,9 +20,12 @@ Deno.serve(async(req:Request)=>{
   if(authError||!caller)return out({error:"লগইন সেশন বৈধ নয়। আবার লগইন করো।"},401,origin);
   if(!caller.email||!caller.email_confirmed_at)return out({error:"ভেরিফাই করা Google/Gmail account দরকার।"},403,origin);
   const admin=createClient(URL,SERVICE,{auth:{persistSession:false,autoRefreshToken:false}}),email=caller.email.toLowerCase().trim();
+  const {data:account,error:accountError}=await admin.from("admin_accounts").select("id,username,display_name,enabled").eq("id",caller.id).eq("enabled",true).maybeSingle();
+  if(accountError)throw accountError;
+  if(!account)return out({error:"এই অ্যাকাউন্টটি Admin হিসেবে অনুমোদিত নয়।",code:"ADMIN_NOT_ALLOWLISTED"},403,origin);
   const {data:allow,error:allowError}=await admin.from("admin_allowlist").select("email").eq("email",email).eq("enabled",true).maybeSingle();
   if(allowError)throw allowError;
-  if(!allow)return out({error:"এই Gmail Admin allowlist-এ অনুমোদিত নয়। মালিককে public.admin_allowlist-এ যোগ করতে হবে।",code:"ADMIN_NOT_ALLOWLISTED"},403,origin);
+  if(!allow)return out({error:"এই Admin account-এর অনুমতি নেই।",code:"ADMIN_NOT_ALLOWLISTED"},403,origin);
   const input=await req.json().catch(()=>({})),action=clean(input.action,50);
   async function audit(actionName:string,targetId:string|null=null,details:Record<string,unknown>={}){const {error}=await admin.from("admin_audit_logs").insert({admin_user_id:caller.id,admin_email:email,action:actionName,target_user_id:targetId,details});if(error)throw error}
   async function authInfo(id:string){const {data,error}=await admin.auth.admin.getUserById(id);if(error)return null;const u=data.user;return u?{id:u.id,email:u.email??null,email_confirmed_at:u.email_confirmed_at??null,created_at:u.created_at??null,last_sign_in_at:u.last_sign_in_at??null,is_anonymous:Boolean((u as any).is_anonymous),providers:(u.identities??[]).map((x:any)=>x.provider).filter(Boolean)}:null}
@@ -47,7 +50,7 @@ Deno.serve(async(req:Request)=>{
    const {data:profiles,error}=ids.length?await admin.from("profiles").select("id,username,display_name").in("id",ids):{data:[],error:null};
    if(error)throw error;const map=new Map((profiles??[]).map((p:any)=>[p.id,p]));
    const recentMessages=(recent.data??[]).map((m:any)=>({...m,sender_name:(map.get(m.sender_id) as any)?.display_name||(map.get(m.sender_id) as any)?.username||"Unknown user"}));
-   return out({ok:true,stats:{users,online,banned,messages,conversations},recentMessages},200,origin);
+   return out({ok:true,stats:{users,online,banned,messages,conversations},recentMessages,admin:{email,username:account.username,display_name:account.display_name}},200,origin);
   }
   if(action==="users"){
    const search=clean(input.search,100).replace(/[,%()]/g," "),page=Math.max(1,Math.min(5000,Number(input.page)||1)),perPage=Math.max(10,Math.min(50,Number(input.perPage)||25));
