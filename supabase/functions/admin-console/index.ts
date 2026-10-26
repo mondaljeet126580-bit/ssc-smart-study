@@ -32,10 +32,17 @@ Deno.serve(async(req:Request)=>{
   async function countRows(table:string,filter?:(q:any)=>any){let q=admin.from(table).select("*",{count:"exact",head:true});if(filter)q=filter(q);const {count,error}=await q;if(error)throw error;return count??0}
 
   if(action==="maintenance_change"){
-   const enabled=Boolean(input.enabled);
+   const enabled=input.enabled===true;
    const message=clean(input.message,500)||"on maintenance";
-   const {data:state,error}=await admin.rpc("admin_set_maintenance",{p_enabled:enabled,p_message:message});
-   if(error)throw error;
+   const state={enabled,message};
+   // The Edge Function has already verified the caller's Auth session and admin allowlist.
+   // Use service-role table access here; calling auth.uid()-guarded RPC with service role makes auth.uid() null.
+   const {error:saveError}=await admin.from("app_settings").upsert({
+    key:"maintenance",
+    value:state,
+    updated_at:new Date().toISOString()
+   },{onConflict:"key"});
+   if(saveError)throw saveError;
    await audit("maintenance_change",null,{enabled:state.enabled,message:state.message});
    return out({ok:true,maintenance:state},200,origin);
   }
