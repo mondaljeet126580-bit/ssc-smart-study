@@ -1,61 +1,77 @@
-# SSC Smart Study — Admin + Username/PIN Login
+# SSC Smart Study — Admin Console
 
-The repository contains the admin console plus a separate user login page. The browser receives only the Supabase publishable key; no service-role key is committed.
-
-## Included files
-
-- `index.html` — responsive Bengali admin UI and Google sign-in.
-- `user.html` — user account creation/login using username + 6-digit PIN; no email is shown to users.
-- `supabase/functions/admin-console/index.ts` — server-side admin authentication, allowlist checks, dashboard/user/message reads, moderation and audit logs.
-- `supabase/functions/user-auth/index.ts` — secure server-side account creation. It creates the Supabase Auth account with a private internal email identity and stores the public username/display name in `profiles`.
-- `supabase/migrations/20261026_admin_console.sql` — moderation fields, RLS enforcement and chat RPC hardening.
-
-## Username + PIN login
-
-Open:
-
-    https://mondaljeet126580-bit.github.io/ssc-smart-study/user.html
-
-New users choose a username, display name and a 6-digit PIN. The PIN is handled by Supabase Auth as the password; it is not stored as plain text in the database or GitHub. Returning users log in with the same username and PIN. Usernames are unique (case-insensitive).
-
-The server-side `user-auth` Edge Function uses the Supabase service-role credential only inside Supabase and never sends it to the browser.
+This repository contains the separate admin console for the Study Chat / ChatLink system.
 
 ## Admin login
 
-`index.html` remains the separate admin console. Google OAuth setup and the exact admin Gmail allowlist are described below. Do not make the user login page an admin login; normal users must never receive admin permissions.
+The admin console now uses the same **Username + 6-digit PIN** authentication style as the ChatLink account system.
 
-## Google OAuth in Supabase
+- No Google login.
+- No Gmail login screen.
+- Admin login fields: username + 6-digit PIN.
+- New account creation uses the existing `user-auth` Supabase Edge Function.
+- The PIN is handled by Supabase Auth as the password and is never stored as plaintext in GitHub.
+- The browser only receives the Supabase publishable key; the service-role key remains inside Supabase Edge Functions.
+- The admin page signs out the current browser session when it opens, so the PIN is required again for a new admin login.
 
-Google login for the admin console cannot be activated by HTML alone. If you want Google admin login, create an OAuth Client ID of type Web application in Google Cloud and configure the Supabase callback:
+## Admin permission
 
-    https://mtitrkspgoqaqdeiluud.supabase.co/auth/v1/callback
+Authentication and admin permission are separate. A valid Username + PIN account does **not** automatically become an administrator.
 
-Then enable Google in Supabase Authentication → Sign In / Providers and configure the GitHub Pages URL under Authentication → URL Configuration.
+The server-side `admin-console` Edge Function checks `public.admin_allowlist` before returning admin data or allowing moderation actions.
 
-## Allow only your Gmail
+For a username such as `YOUR_ADMIN_USERNAME`, the internal Auth email used by this project is:
 
-The admin allowlist is intentionally empty by default. Add only the exact verified Gmail used for admin login in Supabase SQL Editor.
+    YOUR_ADMIN_USERNAME@username.ssc-smart-study.local
 
-## Publish on GitHub Pages
+After creating the admin account, add that exact internal email to `public.admin_allowlist` with `enabled = true`. Do not add normal users.
 
-GitHub → Settings → Pages → Deploy from a branch → `main` → `/ (root)`.
+Example SQL:
 
-User login page:
+    insert into public.admin_allowlist(email, enabled)
+    values ('YOUR_ADMIN_USERNAME@username.ssc-smart-study.local', true)
+    on conflict (email) do update set enabled = true;
 
-    https://mondaljeet126580-bit.github.io/ssc-smart-study/user.html
+## Admin features
+
+- Total user count
+- Online users
+- Banned users
+- Total messages
+- Conversation count
+- Recent messages
+- User search by name/username
+- Per-user conversation history
+- Message history and delivery/read timestamps when available
+- Image preview in admin details
+- Ban / unban users
+- Delete user account
+- Delete individual messages
+- Admin audit log
+
+## Supabase components
+
+- `index.html` — admin UI and Username + PIN login.
+- `user.html` — the same Username + 6-digit PIN user authentication UI.
+- `supabase/functions/user-auth/index.ts` — secure account creation using a private internal Auth email identity.
+- `supabase/functions/admin-console/index.ts` — server-side admin authorization, dashboard, user/message inspection and moderation.
+- `supabase/migrations/20261026_admin_console.sql` — database/RLS/admin tables and chat hardening.
+
+## GitHub Pages
+
+Publish `main` from the repository root.
 
 Admin page:
 
     https://mondaljeet126580-bit.github.io/ssc-smart-study/
 
-## Privacy and safety
+User login page:
 
-- User PINs are never stored as plain text.
-- Username uniqueness is enforced with a database unique index.
-- A banned account is rejected by the user UI and enforced by chat RLS/RPC rules.
-- Service-role credentials stay only inside Supabase Edge Functions and are never committed to GitHub.
-- Admin actions remain audited.
+    https://mondaljeet126580-bit.github.io/ssc-smart-study/user.html
 
-## Deployment
+## Security
 
-The `user-auth` Edge Function is deployed to Supabase project `mtitrkspgoqaqdeiluud` with its service-role credential kept server-side. The admin-console function remains separately deployed with JWT verification enabled.
+- Never put a Supabase service-role/secret key in `index.html` or `user.html`.
+- Keep `admin_allowlist` restricted to the intended admin account(s).
+- Admin actions are recorded in `admin_audit_logs`.
+- Supabase Auth handles password/PIN verification; the PIN is not stored in the public `profiles` table.
