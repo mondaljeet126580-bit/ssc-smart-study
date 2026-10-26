@@ -18,7 +18,10 @@ revoke all on function private.is_user_banned(uuid) from public,anon;
 grant execute on function private.is_user_banned(uuid) to authenticated,service_role;
 create or replace function private.guard_profile_moderation_fields() returns trigger language plpgsql set search_path='' as $function$
 begin
- if auth.uid() is not null and (new.is_banned is distinct from old.is_banned or new.ban_reason is distinct from old.ban_reason or new.banned_at is distinct from old.banned_at or new.banned_by is distinct from old.banned_by) then raise exception 'Only the admin moderation service may change ban fields'; end if;
+ if coalesce(auth.jwt()->>'role','') not in ('service_role','supabase_admin') and auth.uid() is not null
+    and (new.is_banned is distinct from old.is_banned or new.ban_reason is distinct from old.ban_reason or new.banned_at is distinct from old.banned_at or new.banned_by is distinct from old.banned_by) then
+   raise exception 'Only the admin moderation service may change ban fields';
+ end if;
  return new;
 end;
 $function$;
