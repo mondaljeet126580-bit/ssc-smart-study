@@ -35,15 +35,15 @@ Deno.serve(async(req:Request)=>{
    const enabled=input.enabled===true;
    const message=clean(input.message,500)||"on maintenance";
    const state={enabled,message};
-   // The Edge Function has already verified the caller's Auth session and admin allowlist.
-   // Use service-role table access here; calling auth.uid()-guarded RPC with service role makes auth.uid() null.
+   // Auth session, admin_accounts, and admin_allowlist were verified above.
    const {error:saveError}=await admin.from("app_settings").upsert({
     key:"maintenance",
     value:state,
     updated_at:new Date().toISOString()
    },{onConflict:"key"});
-   if(saveError)throw saveError;
-   await audit("maintenance_change",null,{enabled:state.enabled,message:state.message});
+   if(saveError)return out({error:saveError.message||"Maintenance setting save failed."},500,origin);
+   try{await audit("maintenance_change",null,{enabled:state.enabled,message:state.message})}
+   catch(auditError){console.error("maintenance audit log failed",auditError)}
    return out({ok:true,maintenance:state},200,origin);
   }
   if(action==="dashboard"){
