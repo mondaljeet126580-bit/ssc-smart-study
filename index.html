@@ -72,25 +72,36 @@ async function render(view){currentView=view;const c=$('content');c.innerHTML='<
 async function dashboard(){const d=await api('dashboard'),s=d.stats||{};const recent=(d.recentMessages||[]).map(m=>`<div class="recent"><div><strong>${esc(m.sender_name)}</strong><div class="mbody">${m.deleted_at||m.delete_for_everyone?'[মুছে দেওয়া হয়েছে]':esc(m.body||'[ছবি/মিডিয়া]')}</div><div class="uinfo small">${date(m.created_at)}</div></div><span class="badge ${m.read_at?'normal':m.delivered_at?'online':'offline'}">${m.read_at?'✓✓ পড়া':m.delivered_at?'✓✓ delivered':'✓ sent'}</span></div>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>ড্যাশবোর্ড</h2><p>অ্যাপে এখন পর্যন্ত ইউজার, চ্যাট ও মেসেজের সারাংশ</p></div><button onclick="window.adminRefresh()">↻ Refresh</button></div><div class="stats">${[["মোট ইউজার",s.users],["অনলাইন",s.online],["ব্যান",s.banned],["মোট মেসেজ",s.messages],["মোট চ্যাট",s.conversations]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${num(x[1])}</strong></div>`).join('')}</div><div class="grid"><div class="panel"><div class="head"><b>সাম্প্রতিক মেসেজ</b><small style="color:var(--muted)">read/delivered status</small></div><div class="body list">${recent||'<div class="empty">কোনো মেসেজ নেই</div>'}</div></div><div class="panel"><div class="head"><b>Admin session</b></div><div class="body"><div class="kv"><small>Google account</small><b>${esc(session?.user?.email||'—')}</b></div><div class="kv" style="margin-top:8px"><small>Access</small><b>Allowlist protected</b></div><div class="kv" style="margin-top:8px"><small>Security</small><b>Ban / delete actions are audited</b></div></div></div></div>`}
 window.adminRefresh=()=>render(currentView);
 async function maintenanceView(){
- const value=await maintenanceStatus();
- const enabled=!!value.enabled;
- $('content').innerHTML=`<div class="pageTitle"><div><h2>Maintenance Mode</h2><p>একটি টগল দিয়ে পুরো অ্যাপ সাময়িক বন্ধ বা আবার চালু করো</p></div><span class="badge ${enabled?'banned':'online'}">${enabled?'ON MAINTENANCE':'APP IS LIVE'}</span></div>
- <div class="panel"><div class="section"><div class="kvgrid"><div class="kv"><small>বর্তমান অবস্থা</small><b>${enabled?'Maintenance চলছে':'স্বাভাবিকভাবে চালু'}</b></div><div class="kv"><small>দর্শকদের বার্তা</small><b>${esc(value.message||'on maintenance')}</b></div></div>
- <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:18px;padding:15px;border:1px solid var(--line);border-radius:13px;background:#0a1723"><div><b>Maintenance চালু / বন্ধ</b><p style="margin:4px 0 0;color:var(--muted);font-size:12px">চালু করলে সাধারণ ব্যবহারকারীরা অ্যাপের বদলে maintenance বার্তা দেখবে।</p></div><label style="display:flex;align-items:center;gap:9px;font-weight:800"><input id="maintenanceToggle" type="checkbox" style="width:22px;height:22px;accent-color:#12b985" ${enabled?'checked':''}> ON</label></div>
- <label class="label" for="maintenanceMessage">Maintenance message</label><input id="maintenanceMessage" class="field" maxlength="500" value="${esc(value.message||'on maintenance')}" placeholder="on maintenance">
+ const {data:raw,error:loadError}=await supa.rpc('get_app_maintenance');
+ if(loadError)throw loadError;
+ const value=raw&&typeof raw==='object'?raw:{enabled:false,message:'on maintenance'};
+ const enabled=Boolean(value.enabled);
+ const message=String(value.message??'on maintenance');
+ $('content').innerHTML=`<div class="pageTitle"><div><h2>Maintenance Mode</h2><p>একটি সুইচ দিয়ে অ্যাপ সাময়িক বন্ধ বা আবার চালু করো</p></div><span class="badge ${enabled?'banned':'online'}">${enabled?'ON MAINTENANCE':'APP IS LIVE'}</span></div>
+ <div class="panel"><div class="section"><div class="kvgrid"><div class="kv"><small>বর্তমান অবস্থা</small><b>${enabled?'Maintenance চলছে':'স্বাভাবিকভাবে চালু'}</b></div><div class="kv"><small>দর্শকদের বার্তা</small><b>${esc(message)}</b></div></div>
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:18px;padding:15px;border:1px solid var(--line);border-radius:13px;background:#0a1723"><div><b>Maintenance চালু / বন্ধ</b><p style="margin:4px 0 0;color:var(--muted);font-size:12px">চালু করলে সাধারণ ব্যবহারকারীরা অ্যাপের বদলে maintenance বার্তা দেখবে।</p></div><div class="switchRow"><span id="maintenanceStatusText" class="statusText">${enabled?'ON MAINTENANCE':'APP IS LIVE'}</span><label class="switch"><input id="maintenanceToggle" type="checkbox" ${enabled?'checked':''}><span class="switchTrack"></span></label></div></div>
+ <label class="label" for="maintenanceMessage">Maintenance message</label><input id="maintenanceMessage" class="field" maxlength="500" value="${esc(message)}" placeholder="on maintenance">
  <button class="primary" id="saveMaintenance" style="margin-top:14px;width:100%">পরিবর্তন সেভ করো</button><div id="maintenanceFeedback" class="msg hidden"></div></div></div>`;
+ $('maintenanceToggle').addEventListener('change',()=>{
+  $('maintenanceStatusText').textContent=$('maintenanceToggle').checked?'ON MAINTENANCE':'APP IS LIVE';
+ });
  $('saveMaintenance').onclick=async()=>{
-  const b=$('saveMaintenance'),msg=$('maintenanceFeedback');b.disabled=true;msg.className='msg';msg.textContent='সেভ হচ্ছে…';
+  const button=$('saveMaintenance'),feedback=$('maintenanceFeedback');
+  button.disabled=true;feedback.className='msg';feedback.textContent='সেভ হচ্ছে…';
   try{
-   const next=!!$('maintenanceToggle').checked;
-   const text=$('maintenanceMessage').value.trim()||'on maintenance';
-   if(next&&!confirm('Maintenance চালু করলে সাধারণ ব্যবহারকারীরা অ্যাপ ব্যবহার করতে পারবে না। চালু করবে?')){msg.className='msg hidden';return}
-   const result=await setMaintenance(next,text);
-   await api('maintenance_change',{enabled:result.enabled,message:result.message});
-   msg.className='msg ok';msg.textContent=result.enabled?'Maintenance চালু হয়েছে।':'Maintenance বন্ধ হয়েছে। অ্যাপ আবার স্বাভাবিকভাবে চলবে।';
-   await maintenanceView();
-  }catch(e){msg.className='msg error';msg.textContent=e.message||String(e)}
-  finally{b.disabled=false}
+   const next=Boolean($('maintenanceToggle').checked);
+   const text=String($('maintenanceMessage')?.value??'').trim()||'on maintenance';
+   if(next&&!enabled&&!confirm('Maintenance চালু করলে সাধারণ ব্যবহারকারীরা অ্যাপ ব্যবহার করতে পারবে না। চালু করবে?')){feedback.className='msg hidden';return}
+   if(!next&&enabled&&!confirm('Maintenance বন্ধ করে অ্যাপ আবার চালু করবে?')){feedback.className='msg hidden';return}
+   const response=await api('maintenance_change',{enabled:next,message:text});
+   const result=response&&response.maintenance&&typeof response.maintenance==='object'?response.maintenance:{enabled:next,message:text};
+   feedback.className='msg ok';feedback.textContent=result.enabled?'Maintenance চালু হয়েছে।':'Maintenance বন্ধ হয়েছে। অ্যাপ আবার স্বাভাবিকভাবে চলবে।';
+   $('maintenanceToggle').checked=Boolean(result.enabled);
+   $('maintenanceStatusText').textContent=result.enabled?'ON MAINTENANCE':'APP IS LIVE';
+   $('maintenanceMessage').value=String(result.message??'on maintenance');
+   const badge=document.querySelector('#content .pageTitle .badge');if(badge){badge.textContent=result.enabled?'ON MAINTENANCE':'APP IS LIVE';badge.className='badge '+(result.enabled?'banned':'online')}
+  }catch(e){feedback.className='msg error';feedback.textContent=e&&e.message?e.message:String(e)}
+  finally{button.disabled=false}
  };
 }
 async function usersView(){const d=await api('users',{page:usersPage,perPage:25,search:usersSearch});users=d.users||[];usersTotal=d.total||0;const list=users.map(u=>`<button class="userCard ${selectedUserId===u.id?'selected':''}" onclick="window.openUser('${u.id}')"><span class="avatar">${esc((u.display_name||u.username||'?')[0])}</span><span class="uinfo"><b>${esc(u.display_name||'—')}</b><small>@${esc(u.username||'—')} • ${date(u.created_at)}</small></span><span class="badge ${u.is_banned?'banned':u.is_online?'online':'offline'}">${u.is_banned?'ব্যান':u.is_online?'অনলাইন':'অফলাইন'}</span></button>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>ইউজার ও চ্যাট</h2><p>একজন ইউজার নির্বাচন করলে সে কার কার সাথে চ্যাট করেছে এবং মেসেজ/পড়ার status দেখা যাবে</p></div><div class="search"><input id="userSearch" class="field" style="margin:0;width:220px" value="${esc(usersSearch)}" placeholder="username / নাম"><button onclick="window.searchUsers()" class="primary">Search</button></div></div><div class="userLayout"><div class="panel"><div class="head"><b>ইউজার (${num(usersTotal)})</b></div><div class="body list">${list||'<div class="empty">কোনো ইউজার নেই</div>'}</div><div class="body" style="display:flex;gap:7px"><button onclick="window.prevUsers()" ${usersPage<=1?'disabled':''}>← আগের</button><button onclick="window.nextUsers()" ${usersPage*25>=usersTotal?'disabled':''}>পরের →</button></div></div><div id="detailPanel" class="panel">${detail&&selectedUserId===detail.user.id?detailHtml(detail):'<div class="empty">একজন ইউজার নির্বাচন করো</div>'}</div></div>`}
