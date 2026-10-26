@@ -1,147 +1,55 @@
-# Jeet Delta Exchange MCP
+# Study Chat Admin Console
 
-A standalone remote MCP server for **Delta Exchange India**. This project does **not** depend on Delta Exchange's official MCP repository; it talks directly to Delta's REST API and exposes the API through MCP Streamable HTTP.
+This repository now contains only the admin console and its required Supabase source files. The browser receives only the Supabase publishable key; no service-role key is committed.
 
-## What it provides
+## Included files
 
-Public market tools:
-- `get_products`
-- `get_product`
-- `get_ticker`
-- `get_tickers`
-- `get_orderbook`
-- `get_candles`
-- `get_public_trades`
+- index.html — responsive Bengali admin UI and Google sign-in.
+- supabase/functions/admin-console/index.ts — server-side authentication, allowlist checks, dashboard/user/message reads, ban/unban, account/message deletion and audit logs.
+- supabase/migrations/20261026_admin_console.sql — allowlist/audit tables, moderation fields, RLS enforcement and RPC hardening.
+- supabase/config.toml — function configuration.
 
-Advanced market/chart tools:
-- `get_all_funding_rates`
-- `get_funding_history`
-- `plot_market_chart`
-- `plot_horizontal_price_line` — plots a user-specified horizontal price level on a real Delta OHLC chart (for example, BTCUSD at 80500 or ETHUSD at 3200)
+## One-time setup required
 
-Account tools (API key + secret required):
-- `get_balance`
-- `get_positions`
-- `get_all_positions`
-- `get_open_orders`
-- `get_order`
-- `get_order_history`
-- `get_fills`
-- `get_profile`
-- `get_order_leverage`
+### Google OAuth in Supabase
 
-Trading tools (read-only/dry-run by default):
-- `place_order`
-- `edit_order`
-- `cancel_order`
-- `set_order_leverage`
+Google login cannot be activated by HTML code alone. You must create a Google OAuth Client ID and Client Secret:
 
-## Charting
+1. In Google Cloud Console → Google Auth Platform → Clients, create an OAuth Client ID of type Web application.
+2. Authorized JavaScript origin: https://mondaljeet126580-bit.github.io
+3. Authorized redirect URI: https://mtitrkspgoqaqdeiluud.supabase.co/auth/v1/callback
+4. In Supabase Dashboard → Authentication → Sign In / Providers → Google, enable Google and paste that Client ID and Client Secret.
+5. In Supabase → Authentication → URL Configuration:
+   - Site URL: https://mondaljeet126580-bit.github.io/ssc-smart-study/
+   - Add Redirect URL: https://mondaljeet126580-bit.github.io/ssc-smart-study/
 
-`plot_horizontal_price_line` accepts:
-- `symbol`: Delta symbol such as `BTCUSD` or `ETHUSD`
-- `price`: the exact positive price where the horizontal line should be drawn
-- `resolution`: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d`, or `1w`
-- `candles`: number of candles to render (30–2000)
-- `show_trendline`: whether to keep the automatic regression trendline
-- `show_support_resistance`: whether to keep recent support/resistance levels
-- `label`: optional text shown next to the horizontal line
+Google provider is not yet configured for this Supabase project, so Google sign-in will fail until the settings above are completed.
 
-Example natural-language request:
+### Allow only your Gmail
 
-```text
-Plot BTCUSD at 80500 with a horizontal price line.
-```
+The admin allowlist is intentionally empty by default. Add only the exact verified Gmail you will use for admin login by running this in Supabase SQL Editor (replace the example address):
 
-The MCP client can map that request to `plot_horizontal_price_line(symbol="BTCUSD", price=80500)`.
+    insert into public.admin_allowlist(email, enabled)
+    values ('YOUR-GMAIL@gmail.com', true)
+    on conflict (email) do update set enabled = true;
 
-The existing `plot_market_chart` tool remains available and its existing `horizontal_price` parameter is preserved.
+The Edge Function checks this list on every admin request. Do not grant all Google users access.
 
-## Security model
+### Publish on GitHub Pages
 
-- **Never** commit a real Delta API key/secret to GitHub.
-- Put Delta credentials in your cloud provider's secret/environment-variable store.
-- `MCP_ACCESS_TOKEN` protects the remote `/mcp` endpoint. Give the MCP client the same Bearer token when your client supports bearer-token authentication.
-- `ENABLE_LIVE_TRADING=false` is the default.
-- Trading tools default to `dry_run=true`.
-- To send real orders you must explicitly set `ENABLE_LIVE_TRADING=true`, use an API key with Delta trading permission, and call a trading tool with `dry_run=false`.
-- Test on Delta's demo/testnet environment before live trading by setting `DELTA_BASE_URL=https://cdn-ind.testnet.deltaex.org` and using testnet credentials.
+Open GitHub → Settings → Pages, choose Deploy from a branch, branch main, folder / (root), then Save. When published, open:
 
-## Local run
+    https://mondaljeet126580-bit.github.io/ssc-smart-study/
 
-Python 3.10+ is required by the current MCP Python SDK.
+## Privacy and safety
 
-```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
+- Every admin API call validates a Supabase session and the confirmed email allowlist.
+- Viewing a user's conversation detail, viewing users/dashboard, bans/unbans and deletion actions are written to admin_audit_logs.
+- A ban is enforced in RLS and chat RPCs as well as in the Auth account, not only hidden in the UI.
+- Delete account is destructive: it deletes the account, profile, every conversation the user belongs to, all messages in those conversations, and associated chat images. Other participants lose that conversation history too. The UI asks twice before deletion.
+- Read status is based on stored read_at/delivered_at timestamps. Older messages with no receipt timestamp may show an unknown status.
+- Service-role credentials must stay in Supabase's server environment and must never be placed in index.html or committed to GitHub.
 
-# Set environment variables in your shell, or use a local .env loader of your choice.
-export MCP_ACCESS_TOKEN='replace-with-a-long-random-token'
-export DELTA_API_KEY='replace-me'
-export DELTA_API_SECRET='replace-me'
+## Deployment
 
-uvicorn server:app --host 0.0.0.0 --port 8000
-```
-
-MCP endpoint:
-
-```text
-http://localhost:8000/mcp
-```
-
-Health endpoint:
-
-```text
-http://localhost:8000/health
-```
-
-## Docker
-
-```bash
-docker build -t jeet-delta-mcp .
-docker run --rm -p 8000:8000 \
-  -e MCP_ACCESS_TOKEN='replace-with-a-long-random-token' \
-  -e DELTA_API_KEY='replace-me' \
-  -e DELTA_API_SECRET='replace-me' \
-  jeet-delta-mcp
-```
-
-## Cloud deployment
-
-Deploy the repository as a normal Python/ASGI web service using the Dockerfile or the start command:
-
-```text
-uvicorn server:app --host 0.0.0.0 --port $PORT
-```
-
-The final MCP URL will normally be:
-
-```text
-https://YOUR-SERVICE-DOMAIN/mcp
-```
-
-The SDK uses Streamable HTTP for production MCP deployments. A reverse proxy/cloud platform should terminate HTTPS. The server disables the SDK's localhost-only DNS-rebinding check because the app is intended to run behind a real cloud hostname; keep the `MCP_ACCESS_TOKEN` enabled on public deployments.
-
-## Delta API signing
-
-Authenticated requests use Delta's documented HMAC-SHA256 signing scheme: HTTP method + timestamp + request path + query string + exact request body. The timestamp must be current because Delta accepts signatures only within a short time window. The implementation also sends the required `User-Agent` header.
-
-## Current API base URLs
-
-Production:
-
-```text
-https://api.india.delta.exchange
-```
-
-Demo/testnet:
-
-```text
-https://cdn-ind.testnet.deltaex.org
-```
-
-## Important
-
-This server is an API bridge, not an autonomous trading strategy. It will not monitor the market by itself. A separate continuously running strategy/bot is needed for 24/7 automated trading.
+The admin-console Edge Function source is included at supabase/functions/admin-console/index.ts and is deployed to Supabase with JWT verification enabled. The database changes have already been applied to project mtitrkspgoqaqdeiluud.
