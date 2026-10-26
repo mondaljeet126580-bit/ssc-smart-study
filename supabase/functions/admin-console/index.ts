@@ -28,6 +28,14 @@ Deno.serve(async(req:Request)=>{
   async function authInfo(id:string){const {data,error}=await admin.auth.admin.getUserById(id);if(error)return null;const u=data.user;return u?{id:u.id,email:u.email??null,email_confirmed_at:u.email_confirmed_at??null,created_at:u.created_at??null,last_sign_in_at:u.last_sign_in_at??null,is_anonymous:Boolean((u as any).is_anonymous),providers:(u.identities??[]).map((x:any)=>x.provider).filter(Boolean)}:null}
   async function countRows(table:string,filter?:(q:any)=>any){let q=admin.from(table).select("*",{count:"exact",head:true});if(filter)q=filter(q);const {count,error}=await q;if(error)throw error;return count??0}
 
+  if(action==="maintenance_change"){
+   const enabled=Boolean(input.enabled);
+   const message=clean(input.message,500)||"on maintenance";
+   const {data:state,error}=await admin.rpc("admin_set_maintenance",{p_enabled:enabled,p_message:message});
+   if(error)throw error;
+   await audit("maintenance_change",null,{enabled:state.enabled,message:state.message});
+   return out({ok:true,maintenance:state},200,origin);
+  }
   if(action==="dashboard"){
    await audit("view_dashboard");
    const [users,online,banned,messages,conversations,recent]=await Promise.all([
