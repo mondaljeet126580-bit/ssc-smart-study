@@ -23,7 +23,7 @@ Google login cannot be activated by HTML code alone. You must create a Google OA
    - Site URL: https://mondaljeet126580-bit.github.io/ssc-smart-study/
    - Add Redirect URL: https://mondaljeet126580-bit.github.io/ssc-smart-study/
 
-Google provider is not yet configured for this Supabase project, so Google sign-in will fail until the settings above are completed.
+Google OAuth availability was not confirmed by the database checks. If Google is not already enabled in this Supabase project's provider settings, complete the steps above before using sign-in.
 
 ### Allow only your Gmail
 
