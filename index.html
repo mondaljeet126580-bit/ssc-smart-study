@@ -115,30 +115,24 @@ async function moderate(action,id,reason){try{await api(action,{userId:id,reason
 window.deleteMessage=async id=>{if(!confirm('এই মেসেজটি Admin হিসেবে স্থায়ীভাবে ডিলিট করবে?'))return;try{await api('delete_message',{messageId:id});detail=await api('user_detail',{userId:selectedUserId});$('detailPanel').innerHTML=detailHtml(detail);alert('মেসেজ ডিলিট হয়েছে।')}catch(e){alert(e.message)}};
 window.deleteUser=async id=>{if(!confirm('এই account, তার conversations এবং messages স্থায়ীভাবে ডিলিট হবে। নিশ্চিত?'))return;if(!confirm('শেষবার নিশ্চিত করো—এটি undo করা যাবে না।'))return;try{await api('delete_user',{userId:id});selectedUserId=null;detail=null;alert('Account ডিলিট হয়েছে।');await render('users')}catch(e){alert(e.message)}};
 async function auditView(){const d=await api('audit_logs'),rows=(d.logs||[]).map(x=>`<div class="recent"><div><strong>${esc(x.action)}</strong><div class="uinfo">${esc(x.admin_email||'admin')} • target: ${esc(x.target_user_id||'—')}</div><div class="mbody">${esc(JSON.stringify(x.details||{}))}</div></div><time>${date(x.created_at)}</time></div>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>অ্যাডমিন লগ</h2><p>Ban, delete, user view এবং অন্যান্য sensitive action-এর record</p></div></div><div class="panel"><div class="body list">${rows||'<div class="empty">কোনো log নেই</div>'}</div></div>`}
-async function checkMaintenanceForApp(){
+function checkMaintenanceForApp(){
+ // Maintenance mode applies to normal users only. Never block the admin console.
  const screen=$('maintenanceScreen');
- try{
-  const {data,error}=await supa.rpc('get_app_maintenance');
-  if(error)throw error;
-  const state=data||{enabled:false,message:'on maintenance'};
-  if(state.enabled){
-   $('maintenanceMessage').textContent=state.message||'on maintenance';
-   screen.classList.remove('hidden');
-   $('adminTop').classList.add('hidden');
-   $('adminMain').classList.add('hidden');
-   return true;
-  }
-  screen.classList.add('hidden');
-  $('adminTop').classList.remove('hidden');
-  $('adminMain').classList.remove('hidden');
-  return false;
- }catch(e){
-  console.warn('maintenance status check failed',e.message||e);
-  return false;
- }
+ if(screen)screen.classList.add('hidden');
+ const top=$('adminTop'),main=$('adminMain');
+ if(top)top.classList.remove('hidden');
+ if(main)main.classList.remove('hidden');
+ return false;
 }
-async function boot(){const maintenance=await checkMaintenanceForApp();if(maintenance)return;const r=await supa.auth.getSession();session=r.data.session;if(session){try{await api('dashboard');showConsole();await render('dashboard')}catch(e){await supa.auth.signOut();session=null;showLogin(e.message)}}else showLogin()}
-setInterval(()=>{void checkMaintenanceForApp().then(on=>{if(on){session=null;}})},15000);
+async function boot(){
+ checkMaintenanceForApp();
+ const r=await supa.auth.getSession();
+ session=r.data.session;
+ if(session){
+  try{await api('dashboard');showConsole();await render('dashboard')}
+  catch(e){await supa.auth.signOut();session=null;showLogin(e.message)}
+ }else showLogin();
+}
 supa.auth.onAuthStateChange((_event,newSession)=>{if(newSession){session=newSession;setTimeout(async()=>{try{await api('dashboard');showConsole();await render('dashboard')}catch(e){await supa.auth.signOut();session=null;showLogin(e.message)}},0)}});
 boot();
 })();
