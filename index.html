@@ -35,7 +35,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}.wrap{width:100%;max-width
 </head>
 <body>
 <div id="maintenanceScreen" class="hidden" aria-live="polite"><section class="maintenanceCard"><div class="maintenanceIcon">🛠️</div><h1>on maintenance</h1><p id="maintenanceMessage">The app is temporarily unavailable while we make improvements.</p><small>SSC Smart Study • আবার কিছুক্ষণ পরে চেষ্টা করুন</small></section></div>
-<div class="top" id="adminTop"><div class="wrap"><div class="topin"><div class="mark">A</div><div class="brand"><b>SSC Smart Study — Admin</b><small>ইউজার • চ্যাট • মেসেজ • মডারেশন • অডিট</small></div><span class="pill" id="sessionPill">Google login প্রয়োজন</span><button id="logout" class="hidden">লগআউট</button></div><nav id="nav" class="nav hidden" aria-label="Admin navigation"><button class="active" data-view="dashboard">ড্যাশবোর্ড</button><button data-view="users">ইউজার ও চ্যাট</button><button data-view="audit">অ্যাডমিন লগ</button><button data-view="maintenance">Maintenance</button></nav></div></div>
+<div class="top" id="adminTop"><div class="wrap"><div class="topin"><div class="mark">A</div><div class="brand"><b>SSC Smart Study — Admin</b><small>ইউজার • চ্যাট • মেসেজ • মডারেশন • অডিট</small></div><span class="pill" id="sessionPill">Google login প্রয়োজন</span><button id="logout" class="hidden">লগআউট</button></div><nav id="nav" class="nav hidden" aria-label="Admin navigation"><button class="active" data-view="dashboard">ড্যাশবোর্ড</button><button data-view="users">ইউজার ও চ্যাট</button><button data-view="audit">অ্যাডমিন লগ</button><button data-view="maintenance">Maintenance</button><button data-view="automation">Automation API</button></nav></div></div>
 <main class="wrap" id="adminMain">
 <section id="loginCard" class="panel login"><div class="mark" style="margin:auto auto 13px">A</div><h1>Admin Login</h1><p>নাম, username এবং password দিয়ে লগইন করো।</p><form id="adminLoginForm"><div class="adminAuthGrid"><label class="label full" for="adminDisplayName">তোমার নাম<input id="adminDisplayName" class="field" maxlength="60" autocomplete="name" placeholder="যেমন: Jeet Mondal" required></label><label class="label" for="adminUsername">Username<input id="adminUsername" class="field" maxlength="24" autocomplete="username" autocapitalize="none" placeholder="Username" required></label><label class="label" for="adminPassword">Password<input id="adminPassword" class="field" type="password" autocomplete="current-password" placeholder="Password" required></label></div><button id="adminLoginBtn" type="submit" class="primary" style="width:100%;margin-top:17px">লগইন করো</button></form><div id="loginMsg" class="msg hidden"></div><div class="hint">শুধু Supabase-এ তৈরি ও অনুমোদিত Admin account-ই প্রবেশ করতে পারবে। Password এই HTML ফাইলে রাখা হয় না।</div></section>
 <section id="console" class="hidden"><div id="content"></div></section>
@@ -68,9 +68,57 @@ async function api(action,body={}){if(!session){const r=await supa.auth.getSessi
 
 $('logout').onclick=async()=>{await supa.auth.signOut();session=null;adminProfile=null;selectedUserId=null;detail=null;showLogin()};
 $('nav').onclick=e=>{const b=e.target.closest('button[data-view]');if(!b)return;document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x===b));render(b.dataset.view)};
-async function render(view){currentView=view;const c=$('content');c.innerHTML='<div class="panel body">লোড হচ্ছে…</div>';try{if(view==='dashboard')return await dashboard();if(view==='users')return await usersView();if(view==='audit')return await auditView();if(view==='maintenance')return await maintenanceView()}catch(e){c.innerHTML='<div class="panel body msg error">'+esc(e.message)+'</div>'}}
+async function render(view){currentView=view;const c=$('content');c.innerHTML='<div class="panel body">লোড হচ্ছে…</div>';try{if(view==='dashboard')return await dashboard();if(view==='users')return await usersView();if(view==='audit')return await auditView();if(view==='maintenance')return await maintenanceView();if(view==='automation')return await automationView()}catch(e){c.innerHTML='<div class="panel body msg error">'+esc(e.message)+'</div>'}}
 async function dashboard(){const d=await api('dashboard'),s=d.stats||{};if(d.admin){adminProfile=d.admin;showConsole()}const recent=(d.recentMessages||[]).map(m=>`<div class="recent"><div><strong>${esc(m.sender_name)}</strong><div class="mbody">${m.deleted_at||m.delete_for_everyone?'[মুছে দেওয়া হয়েছে]':esc(m.body||'[ছবি/মিডিয়া]')}</div><div class="uinfo small">${date(m.created_at)}</div></div><span class="badge ${m.read_at?'normal':m.delivered_at?'online':'offline'}">${m.read_at?'✓✓ পড়া':m.delivered_at?'✓✓ delivered':'✓ sent'}</span></div>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>ড্যাশবোর্ড</h2><p>অ্যাপে এখন পর্যন্ত ইউজার, চ্যাট ও মেসেজের সারাংশ</p></div><button onclick="window.adminRefresh()">↻ Refresh</button></div><div class="stats">${[["মোট ইউজার",s.users],["অনলাইন",s.online],["ব্যান",s.banned],["মোট মেসেজ",s.messages],["মোট চ্যাট",s.conversations]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${num(x[1])}</strong></div>`).join('')}</div><div class="grid"><div class="panel"><div class="head"><b>সাম্প্রতিক মেসেজ</b><small style="color:var(--muted)">read/delivered status</small></div><div class="body list">${recent||'<div class="empty">কোনো মেসেজ নেই</div>'}</div></div><div class="panel"><div class="head"><b>Admin session</b></div><div class="body"><div class="kv"><small>Google account</small><b>${esc(session?.user?.email||'—')}</b></div><div class="kv" style="margin-top:8px"><small>Access</small><b>Allowlist protected</b></div><div class="kv" style="margin-top:8px"><small>Security</small><b>Ban / delete actions are audited</b></div></div></div></div>`}
 window.adminRefresh=()=>render(currentView);
+async function automationView(){
+ const result=await api('automation_status');
+ const state=result.automation||{enabled:false};
+ const enabled=state.enabled===true;
+ $('content').innerHTML=`<div class="pageTitle"><div><h2>Automation API</h2><p>ChatLink Automation API-এর master switch নিয়ন্ত্রণ করো</p></div><span id="automationBadge" class="badge ${enabled?'online':'offline'}">${enabled?'AUTOMATION ON':'AUTOMATION OFF'}</span></div>
+ <div class="panel"><div class="section">
+  <div class="kvgrid">
+   <div class="kv"><small>বর্তমান অবস্থা</small><b id="automationCurrentState">${enabled?'Automation চালু আছে':'Automation বন্ধ আছে'}</b></div>
+   <div class="kv"><small>প্রভাব</small><b>শুধু বাইরের Automation API</b></div>
+  </div>
+  <div style="margin-top:18px;padding:17px;border:1px solid var(--line);border-radius:14px;background:#0a1723">
+   <b>Automation চালু / বন্ধ</b>
+   <p style="margin:6px 0 0;color:var(--muted);font-size:12px;line-height:1.7">বন্ধ থাকলে API দিয়ে profile পড়া, chat list, message পাঠানো এবং নতুন API key তৈরি করা যাবে না। সাধারণ ChatLink চ্যাট, login ও Maintenance Mode এতে পরিবর্তিত হবে না।</p>
+   <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+    <button type="button" class="primary" id="automationEnableBtn" ${enabled?'disabled':''}>Automation চালু করো</button>
+    <button type="button" class="danger" id="automationDisableBtn" ${enabled?'':'disabled'}>Automation বন্ধ করো</button>
+    <button type="button" id="automationRefreshBtn">↻ Refresh</button>
+   </div>
+   <div id="automationFeedback" class="msg hidden" role="status"></div>
+  </div>
+  <div class="hint" style="text-align:left">পরিবর্তন করতে অনুমোদিত Admin account দরকার। প্রতিটি ON/OFF পরিবর্তন Admin audit log-এ সংরক্ষিত হয়।</div>
+ </div></div>`;
+ async function changeAutomation(next){
+  const feedback=$('automationFeedback');
+  if(next===enabled)return;
+  const question=next
+   ?'Automation API চালু করলে অনুমোদিত API key দিয়ে বাইরের request কাজ করবে। চালু করবে?'
+   :'Automation API বন্ধ করলে বাইরের automation request বন্ধ হবে; সাধারণ ChatLink চ্যাট চলবে। বন্ধ করবে?';
+  if(!confirm(question))return;
+  const on=$('automationEnableBtn'),off=$('automationDisableBtn'),refresh=$('automationRefreshBtn');
+  on.disabled=true;off.disabled=true;refresh.disabled=true;
+  feedback.className='msg';feedback.textContent='পরিবর্তন সেভ হচ্ছে…';
+  try{
+   const saved=await api('automation_change',{enabled:next});
+   const actual=saved.automation?.enabled===true;
+   await automationView();
+   const message=$('automationFeedback');
+   message.className='msg ok';
+   message.textContent=actual?'Automation API চালু হয়েছে।':'Automation API বন্ধ হয়েছে।';
+  }catch(e){
+   feedback.className='msg error';feedback.textContent=e?.message||String(e);
+   on.disabled=false;off.disabled=false;refresh.disabled=false;
+  }
+ }
+ $('automationEnableBtn').onclick=()=>changeAutomation(true);
+ $('automationDisableBtn').onclick=()=>changeAutomation(false);
+ $('automationRefreshBtn').onclick=()=>render('automation');
+}
 async function maintenanceView(){
  const {data:raw,error:loadError}=await supa.rpc('get_app_maintenance');
  if(loadError)throw loadError;
