@@ -31,6 +31,26 @@ Deno.serve(async(req:Request)=>{
   async function authInfo(id:string){const {data,error}=await admin.auth.admin.getUserById(id);if(error)return null;const u=data.user;return u?{id:u.id,email:u.email??null,email_confirmed_at:u.email_confirmed_at??null,created_at:u.created_at??null,last_sign_in_at:u.last_sign_in_at??null,is_anonymous:Boolean((u as any).is_anonymous),providers:(u.identities??[]).map((x:any)=>x.provider).filter(Boolean)}:null}
   async function countRows(table:string,filter?:(q:any)=>any){let q=admin.from(table).select("*",{count:"exact",head:true});if(filter)q=filter(q);const {count,error}=await q;if(error)throw error;return count??0}
 
+  if(action==="automation_status"){
+   const {data:setting,error:settingError}=await admin.from("app_settings").select("value").eq("key","chatlink_automation").maybeSingle();
+   if(settingError)throw settingError;
+   const raw=setting?.value&&typeof setting.value==="object"?setting.value:{};
+   const automation={enabled:raw.enabled===true};
+   return out({ok:true,automation},200,origin);
+  }
+  if(action==="automation_change"){
+   if(typeof input.enabled!=="boolean")return out({error:"Automation ON/OFF-এর জন্য valid enabled value লাগবে।"},400,origin);
+   const automation={enabled:input.enabled};
+   const {error:saveError}=await admin.from("app_settings").upsert({
+    key:"chatlink_automation",
+    value:automation,
+    updated_at:new Date().toISOString()
+   },{onConflict:"key"});
+   if(saveError)return out({error:saveError.message||"Automation setting save failed."},500,origin);
+   try{await audit("automation_change",null,{enabled:automation.enabled})}
+   catch(auditError){console.error("automation audit log failed",auditError)}
+   return out({ok:true,automation},200,origin);
+  }
   if(action==="maintenance_change"){
    const enabled=input.enabled===true;
    const message=clean(input.message,500)||"on maintenance";
