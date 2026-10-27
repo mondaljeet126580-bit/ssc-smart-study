@@ -83,7 +83,7 @@ async function automationView(){
   </div>
   <div style="margin-top:18px;padding:17px;border:1px solid var(--line);border-radius:14px;background:#0a1723">
    <b>Automation চালু / বন্ধ</b>
-   <p style="margin:6px 0 0;color:var(--muted);font-size:12px;line-height:1.7">বন্ধ থাকলে API দিয়ে profile পড়া, chat list, message পাঠানো এবং নতুন API key তৈরি করা যাবে না। সাধারণ ChatLink চ্যাট, login ও Maintenance Mode এতে পরিবর্তিত হবে না।</p>
+   <p style="margin:6px 0 0;color:var(--muted);font-size:12px;line-height:1.7">ON করলে server-side chatlink-automation endpoint-এ বৈধ API key ও permission থাকা request চলতে পারবে। OFF করলে বাইরের API request বন্ধ হবে। User App-এর API-key screen Coming Soon অবস্থায়ই থাকবে; এই switch সেটি খুলবে না। সাধারণ ChatLink চ্যাট, login ও Maintenance Mode এতে পরিবর্তিত হবে না।</p>
    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
     <button type="button" class="primary" id="automationEnableBtn" ${enabled?'disabled':''}>Automation চালু করো</button>
     <button type="button" class="danger" id="automationDisableBtn" ${enabled?'':'disabled'}>Automation বন্ধ করো</button>
