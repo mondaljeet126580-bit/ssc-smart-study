@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#08131e">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>SSC Smart Study — Admin Panel</title>
 <style>
 :root{--bg:#07121d;--card:#102131;--card2:#0b1a28;--line:#274057;--text:#edf6ff;--muted:#9bb0c2;--green:#12b985;--green2:#0d8f6c;--red:#e85b6b;--blue:#58a7ff;--yellow:#dca94b}
@@ -31,15 +34,27 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}.wrap{width:100%;max-width
  .pageTitle p{max-width:100%}
  .switchRow{width:100%;justify-content:space-between}
 }
+#adminBootLoader{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:24px;background:#08131b;color:var(--text);transition:opacity .15s ease}
+.adminBootCard{width:min(360px,100%);text-align:center;padding:28px 24px;border:1px solid #203a47;border-radius:20px;background:#0c1c26;box-shadow:0 18px 60px #0008}
+.adminBootDots{display:flex;justify-content:center;gap:10px;margin:0 0 20px}
+.adminBootDots span{width:12px;height:12px;border-radius:50%;background:#12b985;animation:adminDot 1s infinite ease-in-out}
+.adminBootDots span:nth-child(2){animation-delay:.16s}.adminBootDots span:nth-child(3){animation-delay:.32s}
+@keyframes adminDot{0%,80%,100%{opacity:.28;transform:translateY(0) scale(.82)}40%{opacity:1;transform:translateY(-4px) scale(1)}}
+.adminBootCard strong{display:block;font-size:22px;letter-spacing:-.3px}
+.adminBootCard small{display:block;margin-top:8px;color:var(--muted);font-size:14px}
+.bootRetryActions{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;margin-top:18px}
+@media(prefers-reduced-motion:reduce){.adminBootDots span{animation:none;opacity:1}}
 </style>
 </head>
 <body>
+<div id="adminBootLoader" class="adminBootLoader" role="status" aria-live="polite"><div class="adminBootCard"><div class="adminBootDots" aria-hidden="true"><span></span><span></span><span></span></div><strong>Loading Admin Console</strong><small id="bootLoaderMessage">Checking your saved admin session…</small></div></div>
 <div id="maintenanceScreen" class="hidden" aria-live="polite"><section class="maintenanceCard"><div class="maintenanceIcon">🛠️</div><h1>on maintenance</h1><p id="maintenanceMessage">The app is temporarily unavailable while we make improvements.</p><small>SSC Smart Study • আবার কিছুক্ষণ পরে চেষ্টা করুন</small></section></div>
-<div class="top" id="adminTop"><div class="wrap"><div class="topin"><div class="mark">A</div><div class="brand"><b>SSC Smart Study — Admin</b><small>ইউজার • চ্যাট • মেসেজ • মডারেশন • অডিট</small></div><span class="pill" id="sessionPill">Google login প্রয়োজন</span><button id="logout" class="hidden">লগআউট</button></div><nav id="nav" class="nav hidden" aria-label="Admin navigation"><button class="active" data-view="dashboard">ড্যাশবোর্ড</button><button data-view="users">ইউজার ও চ্যাট</button><button data-view="audit">অ্যাডমিন লগ</button><button data-view="maintenance">Maintenance</button><button data-view="automation">Automation API</button></nav></div></div>
+<div class="top" id="adminTop"><div class="wrap"><div class="topin"><div class="mark">A</div><div class="brand"><b>SSC Smart Study — Admin</b><small>ইউজার • চ্যাট • মেসেজ • মডারেশন • অডিট</small></div><span class="pill" id="sessionPill">Admin session যাচাই হচ্ছে…</span><button id="logout" class="hidden">লগআউট</button></div><nav id="nav" class="nav hidden" aria-label="Admin navigation"><button class="active" data-view="dashboard">ড্যাশবোর্ড</button><button data-view="users">ইউজার ও চ্যাট</button><button data-view="audit">অ্যাডমিন লগ</button><button data-view="maintenance">Maintenance</button><button data-view="automation">Automation API</button></nav></div></div>
 <main class="wrap" id="adminMain">
-<section id="loginCard" class="panel login"><div class="mark" style="margin:auto auto 13px">A</div><h1>Admin Login</h1><p>নাম, username এবং password দিয়ে লগইন করো।</p><form id="adminLoginForm"><div class="adminAuthGrid"><label class="label full" for="adminDisplayName">তোমার নাম<input id="adminDisplayName" class="field" maxlength="60" autocomplete="name" placeholder="যেমন: Jeet Mondal" required></label><label class="label" for="adminUsername">Username<input id="adminUsername" class="field" maxlength="24" autocomplete="username" autocapitalize="none" placeholder="Username" required></label><label class="label" for="adminPassword">Password<input id="adminPassword" class="field" type="password" autocomplete="current-password" placeholder="Password" required></label></div><button id="adminLoginBtn" type="submit" class="primary" style="width:100%;margin-top:17px">লগইন করো</button></form><div id="loginMsg" class="msg hidden"></div><div class="hint">শুধু Supabase-এ তৈরি ও অনুমোদিত Admin account-ই প্রবেশ করতে পারবে। Password এই HTML ফাইলে রাখা হয় না।</div></section>
+<section id="bootError" class="panel login hidden" role="alert"><div class="mark" style="margin:auto auto 13px">A</div><h1>ড্যাশবোর্ড খুলতে সমস্যা</h1><p id="bootErrorMessage">Admin session যাচাই করা যায়নি।</p><div class="bootRetryActions"><button type="button" class="primary" id="bootRetryBtn">আবার চেষ্টা করো</button><button type="button" id="bootUseLoginBtn">Login screen</button></div></section>
+<section id="loginCard" class="panel login hidden"><div class="mark" style="margin:auto auto 13px">A</div><h1>Admin Login</h1><p>নাম, username এবং password দিয়ে লগইন করো।</p><form id="adminLoginForm"><div class="adminAuthGrid"><label class="label full" for="adminDisplayName">তোমার নাম<input id="adminDisplayName" class="field" maxlength="60" autocomplete="name" placeholder="যেমন: Jeet Mondal" required></label><label class="label" for="adminUsername">Username<input id="adminUsername" class="field" maxlength="24" autocomplete="username" autocapitalize="none" placeholder="Username" required></label><label class="label" for="adminPassword">Password<input id="adminPassword" class="field" type="password" autocomplete="current-password" placeholder="Password" required></label></div><button id="adminLoginBtn" type="submit" class="primary" style="width:100%;margin-top:17px">লগইন করো</button></form><div id="loginMsg" class="msg hidden"></div><div class="hint">শুধু Supabase-এ তৈরি ও অনুমোদিত Admin account-ই প্রবেশ করতে পারবে। Password এই HTML ফাইলে রাখা হয় না।</div></section>
 <section id="console" class="hidden"><div id="content"></div></section>
-<div class="footer">Admin-only console • ban/delete এবং অন্যান্য sensitive action audit log-এ সংরক্ষিত</div>
+<div class="footer">Admin-only console • ban/delete এবং অন্যান্য sensitive action audit log-এ সংরক্ষিত · build 2026.10.28.2</div>
 </main>
 <div id="viewer" class="viewer hidden"><button id="closeViewer">✕ বন্ধ</button><img id="viewerImg" alt="ছবি"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0/dist/umd/supabase.js"></script>
@@ -55,12 +70,16 @@ let session=null,adminProfile=null,currentView='dashboard',users=[],usersPage=1,
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=v=>{if(!v)return'—';try{return new Intl.DateTimeFormat('bn-IN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(v))}catch{return String(v)}};
 const num=v=>Number(v||0).toLocaleString('en-IN');
+function showBootLoader(message='Opening Admin Console…'){$('bootLoaderMessage').textContent=message;$('adminBootLoader').classList.remove('hidden')}
+function hideBootLoader(){$('adminBootLoader').classList.add('hidden')}
+function showBootError(message){$('loginCard').classList.add('hidden');$('console').classList.add('hidden');$('nav').classList.add('hidden');$('logout').classList.add('hidden');$('bootErrorMessage').textContent=message||'Dashboard লোড করা যায়নি।';$('bootError').classList.remove('hidden');$('sessionPill').textContent=session?'Admin session সংরক্ষিত':'Session যাচাই প্রয়োজন';hideBootLoader()}
+async function withTimeout(promise,ms,message){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(message)),ms)})])}finally{clearTimeout(timer)}}
 function showMsg(t,error=false){$('loginMsg').textContent=t;$('loginMsg').className='msg '+(error?'error':'ok')}
 function emailForAdmin(u){return String(u||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'-')+'@username.ssc-smart-study.local'}
-async function loginWithPassword(name,username,password){const email=emailForAdmin(username);const {data,error}=await supa.auth.signInWithPassword({email,password});if(error)throw new Error('Username অথবা Password ভুল, অথবা Admin account তৈরি করা নেই।');session=data.session;if(!session)throw new Error('লগইন সেশন তৈরি হয়নি।');try{const dashboardData=await api('dashboard');const admin=dashboardData.admin||{};adminProfile=admin;if(String(admin.username||'').toLowerCase()!==username)throw new Error('Username এই Admin account-এর সঙ্গে মিলছে না।');if(String(admin.display_name||'').trim().toLowerCase()!==String(name||'').trim().toLowerCase())throw new Error('নামটি Admin account-এর নামের সঙ্গে মেলেনি।');showConsole();await render('dashboard')}catch(e){await supa.auth.signOut();session=null;throw e}}
-$('adminLoginForm').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$('adminLoginBtn').disabled=true;showMsg('লগইন যাচাই হচ্ছে…');try{const name=String($('adminDisplayName').value||'').trim(),username=String($('adminUsername').value||'').trim().toLowerCase(),password=String($('adminPassword').value||'');if(name.length<2)throw new Error('তোমার নাম লিখো।');if(!/^[a-z0-9._-]{3,24}$/.test(username))throw new Error('Username ৩–২৪ অক্ষরের হতে হবে।');if(!password)throw new Error('Password লিখো।');await loginWithPassword(name,username,password)}catch(e){showMsg(e.message||String(e),true)}finally{busy=false;$('adminLoginBtn').disabled=false}};
-function showLogin(text=''){$('loginCard').classList.remove('hidden');$('console').classList.add('hidden');$('nav').classList.add('hidden');$('logout').classList.add('hidden');$('sessionPill').textContent='Admin login প্রয়োজন';if(text)showMsg(text,true)}
-function showConsole(){$('loginCard').classList.add('hidden');$('console').classList.remove('hidden');$('nav').classList.remove('hidden');$('logout').classList.remove('hidden');const label=adminProfile?.display_name||'Admin';const username=adminProfile?.username?' · @'+adminProfile.username:'';$('sessionPill').textContent=label+username}
+async function loginWithPassword(name,username,password){const email=emailForAdmin(username);const {data,error}=await supa.auth.signInWithPassword({email,password});if(error)throw new Error('Username অথবা Password ভুল, অথবা Admin account তৈরি করা নেই।');session=data.session;if(!session)throw new Error('লগইন সেশন তৈরি হয়নি।');try{const dashboardData=await withTimeout(api('dashboard'),15000,'Dashboard request timed out. আবার চেষ্টা করো।');const admin=dashboardData.admin||{};adminProfile=admin;if(String(admin.username||'').toLowerCase()!==username)throw new Error('Username এই Admin account-এর সঙ্গে মিলছে না।');if(String(admin.display_name||'').trim().toLowerCase()!==String(name||'').trim().toLowerCase())throw new Error('নামটি Admin account-এর নামের সঙ্গে মেলেনি।');showConsole();await render('dashboard',dashboardData)}catch(e){if(!session||/Username এই Admin account|নামটি Admin account/.test(e.message||'')){await supa.auth.signOut().catch(()=>{});session=null}throw e}}
+$('adminLoginForm').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$('adminLoginBtn').disabled=true;showBootLoader('লগইন যাচাই হচ্ছে এবং ড্যাশবোর্ড খুলছে…');try{const name=String($('adminDisplayName').value||'').trim(),username=String($('adminUsername').value||'').trim().toLowerCase(),password=String($('adminPassword').value||'');if(name.length<2)throw new Error('তোমার নাম লিখো।');if(!/^[a-z0-9._-]{3,24}$/.test(username))throw new Error('Username ৩–২৪ অক্ষরের হতে হবে।');if(!password)throw new Error('Password লিখো।');await loginWithPassword(name,username,password)}catch(e){showLogin();showMsg(e.message||String(e),true)}finally{hideBootLoader();busy=false;$('adminLoginBtn').disabled=false}};
+function showLogin(text=''){$('bootError').classList.add('hidden');$('loginCard').classList.remove('hidden');$('console').classList.add('hidden');$('nav').classList.add('hidden');$('logout').classList.add('hidden');$('sessionPill').textContent='Admin login প্রয়োজন';if(text)showMsg(text,true);else $('loginMsg').classList.add('hidden')}
+function showConsole(){$('loginCard').classList.add('hidden');$('bootError').classList.add('hidden');$('console').classList.remove('hidden');$('nav').classList.remove('hidden');$('logout').classList.remove('hidden');const label=adminProfile?.display_name||'Admin';const username=adminProfile?.username?' · @'+adminProfile.username:'';$('sessionPill').textContent=label+username}
 async function maintenanceStatus(){const {data,error}=await supa.rpc('get_app_maintenance');if(error)throw error;return data||{enabled:false,message:'on maintenance'}}
 async function setMaintenance(enabled,message){const {data,error}=await supa.rpc('admin_set_maintenance',{p_enabled:enabled,p_message:message||'on maintenance'});if(error)throw error;return data}
 async function api(action,body={}){if(!session){const r=await supa.auth.getSession();session=r.data.session}if(!session)throw new Error('Admin session নেই।');const res=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token,'apikey':KEY},body:JSON.stringify({action,...body})});const data=await res.json().catch(()=>({}));if(res.status===401){session=null;showLogin(data.error||'Session expired.');throw new Error(data.error||'Session expired.')}if(!res.ok)throw new Error(data.error||'Request failed');return data}
@@ -68,8 +87,8 @@ async function api(action,body={}){if(!session){const r=await supa.auth.getSessi
 
 $('logout').onclick=async()=>{await supa.auth.signOut();session=null;adminProfile=null;selectedUserId=null;detail=null;showLogin()};
 $('nav').onclick=e=>{const b=e.target.closest('button[data-view]');if(!b)return;document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x===b));render(b.dataset.view)};
-async function render(view){currentView=view;const c=$('content');c.innerHTML='<div class="panel body">লোড হচ্ছে…</div>';try{if(view==='dashboard')return await dashboard();if(view==='users')return await usersView();if(view==='audit')return await auditView();if(view==='maintenance')return await maintenanceView();if(view==='automation')return await automationView()}catch(e){c.innerHTML='<div class="panel body msg error">'+esc(e.message)+'</div>'}}
-async function dashboard(){const d=await api('dashboard'),s=d.stats||{};if(d.admin){adminProfile=d.admin;showConsole()}const recent=(d.recentMessages||[]).map(m=>`<div class="recent"><div><strong>${esc(m.sender_name)}</strong><div class="mbody">${m.deleted_at||m.delete_for_everyone?'[মুছে দেওয়া হয়েছে]':esc(m.body||'[ছবি/মিডিয়া]')}</div><div class="uinfo small">${date(m.created_at)}</div></div><span class="badge ${m.read_at?'normal':m.delivered_at?'online':'offline'}">${m.read_at?'✓✓ পড়া':m.delivered_at?'✓✓ delivered':'✓ sent'}</span></div>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>ড্যাশবোর্ড</h2><p>অ্যাপে এখন পর্যন্ত ইউজার, চ্যাট ও মেসেজের সারাংশ</p></div><button onclick="window.adminRefresh()">↻ Refresh</button></div><div class="stats">${[["মোট ইউজার",s.users],["অনলাইন",s.online],["ব্যান",s.banned],["মোট মেসেজ",s.messages],["মোট চ্যাট",s.conversations]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${num(x[1])}</strong></div>`).join('')}</div><div class="grid"><div class="panel"><div class="head"><b>সাম্প্রতিক মেসেজ</b><small style="color:var(--muted)">read/delivered status</small></div><div class="body list">${recent||'<div class="empty">কোনো মেসেজ নেই</div>'}</div></div><div class="panel"><div class="head"><b>Admin session</b></div><div class="body"><div class="kv"><small>Google account</small><b>${esc(session?.user?.email||'—')}</b></div><div class="kv" style="margin-top:8px"><small>Access</small><b>Allowlist protected</b></div><div class="kv" style="margin-top:8px"><small>Security</small><b>Ban / delete actions are audited</b></div></div></div></div>`}
+async function render(view,initialData=null){currentView=view;const c=$('content');c.innerHTML='<div class="panel body">লোড হচ্ছে…</div>';try{if(view==='dashboard')return await dashboard(initialData);if(view==='users')return await usersView();if(view==='audit')return await auditView();if(view==='maintenance')return await maintenanceView();if(view==='automation')return await automationView()}catch(e){c.innerHTML='<div class="panel body msg error">'+esc(e.message)+'</div>'}}
+async function dashboard(initialData=null){const d=initialData||await api('dashboard'),s=d.stats||{};if(d.admin){adminProfile=d.admin;showConsole()}const recent=(d.recentMessages||[]).map(m=>`<div class="recent"><div><strong>${esc(m.sender_name)}</strong><div class="mbody">${m.deleted_at||m.delete_for_everyone?'[মুছে দেওয়া হয়েছে]':esc(m.body||'[ছবি/মিডিয়া]')}</div><div class="uinfo small">${date(m.created_at)}</div></div><span class="badge ${m.read_at?'normal':m.delivered_at?'online':'offline'}">${m.read_at?'✓✓ পড়া':m.delivered_at?'✓✓ delivered':'✓ sent'}</span></div>`).join('');$('content').innerHTML=`<div class="pageTitle"><div><h2>ড্যাশবোর্ড</h2><p>অ্যাপে এখন পর্যন্ত ইউজার, চ্যাট ও মেসেজের সারাংশ</p></div><button onclick="window.adminRefresh()">↻ Refresh</button></div><div class="stats">${[["মোট ইউজার",s.users],["অনলাইন",s.online],["ব্যান",s.banned],["মোট মেসেজ",s.messages],["মোট চ্যাট",s.conversations]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${num(x[1])}</strong></div>`).join('')}</div><div class="grid"><div class="panel"><div class="head"><b>সাম্প্রতিক মেসেজ</b><small style="color:var(--muted)">read/delivered status</small></div><div class="body list">${recent||'<div class="empty">কোনো মেসেজ নেই</div>'}</div></div><div class="panel"><div class="head"><b>Admin session</b></div><div class="body"><div class="kv"><small>Google account</small><b>${esc(session?.user?.email||'—')}</b></div><div class="kv" style="margin-top:8px"><small>Access</small><b>Allowlist protected</b></div><div class="kv" style="margin-top:8px"><small>Security</small><b>Ban / delete actions are audited</b></div></div></div></div>`}
 window.adminRefresh=()=>render(currentView);
 async function automationView(){
  const result=await api('automation_status');
@@ -173,14 +192,42 @@ function checkMaintenanceForApp(){
  return false;
 }
 async function boot(){
+ showBootLoader('Checking your saved admin session…');
+ $('loginCard').classList.add('hidden');$('bootError').classList.add('hidden');$('console').classList.add('hidden');$('nav').classList.add('hidden');
  checkMaintenanceForApp();
- const r=await supa.auth.getSession();
- session=r.data.session;
- if(session){
-  try{const d=await api('dashboard');adminProfile=d.admin||null;showConsole();await render('dashboard')}
-  catch(e){await supa.auth.signOut();session=null;adminProfile=null;showLogin(e.message)}
- }else showLogin();
+ let sessionCheckSucceeded=false;
+ try{
+  const r=await withTimeout(supa.auth.getSession(),10000,'Saved admin session check timed out. আবার চেষ্টা করো।');
+  if(r.error)throw r.error;
+  session=r.data.session;
+  sessionCheckSucceeded=true;
+  if(!session){showLogin();hideBootLoader();return}
+  showBootLoader('Verifying admin access and loading dashboard…');
+  const d=await withTimeout(api('dashboard'),15000,'Dashboard response পেতে দেরি হচ্ছে। তোমার session রাখা হয়েছে—আবার চেষ্টা করো।');
+  if(!d.admin)throw new Error('এই account-এর Admin permission নিশ্চিত করা যায়নি। Allowlist যাচাই করো।');
+  adminProfile=d.admin;
+  showConsole();
+  await render('dashboard',d);
+  hideBootLoader();
+ }catch(e){
+  console.warn('Admin console startup failed',e?.message||e);
+  if(sessionCheckSucceeded&&!session){
+   await supa.auth.signOut().catch(()=>{});
+   adminProfile=null;
+   showLogin(e?.message||'Admin session আবার যাচাই করো।');
+   hideBootLoader();
+  }else{
+   showBootError(e?.message||'Admin console খোলা যায়নি। ইন্টারনেট দেখে আবার চেষ্টা করো।');
+  }
+ }
 }
+$('bootRetryBtn').addEventListener('click',()=>{void boot()});
+$('bootUseLoginBtn').addEventListener('click',async()=>{
+ showBootLoader('Signing out from this device…');
+ await supa.auth.signOut().catch(()=>{});
+ session=null;adminProfile=null;selectedUserId=null;detail=null;
+ showLogin();hideBootLoader();
+});
 supa.auth.onAuthStateChange((_event,newSession)=>{session=newSession;});
 boot();
 })();
