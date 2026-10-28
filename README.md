@@ -12,7 +12,8 @@ The admin console now uses the same **Username + 6-digit PIN** authentication st
 - New account creation uses the existing `user-auth` Supabase Edge Function.
 - The PIN is handled by Supabase Auth as the password and is never stored as plaintext in GitHub.
 - The browser only receives the Supabase publishable key; the service-role key remains inside Supabase Edge Functions.
-- The admin page signs out the current browser session when it opens, so the PIN is required again for a new admin login.
+- On page open, the console restores a saved Supabase session and verifies it with the server-side admin dashboard endpoint. If the session is still valid and the account is allowlisted, the dashboard opens directly; if there is no valid session, the Username + Password login screen appears.
+- The console shows a full-screen loading indicator while checking the saved session and preparing the first dashboard view. The first dashboard response is reused for rendering to avoid a duplicate dashboard request.
 
 ## Admin permission
 
