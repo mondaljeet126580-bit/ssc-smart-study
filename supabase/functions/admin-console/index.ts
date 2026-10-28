@@ -81,7 +81,7 @@ Deno.serve(async(req:Request)=>{
   }
   if(action==="users"){
    const search=clean(input.search,100).replace(/[,%()]/g," "),page=Math.max(1,Math.min(5000,Number(input.page)||1)),perPage=Math.max(10,Math.min(50,Number(input.perPage)||25));
-   let q=admin.from("profiles").select("id,username,display_name,avatar_url,created_at,last_seen,is_online,is_banned,ban_reason,banned_at",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*perPage,page*perPage-1);
+   let q=admin.from("profiles").select("id,username,display_name,avatar_url,about,created_at,last_seen,is_online,is_banned,ban_reason,banned_at",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*perPage,page*perPage-1);
    if(search)q=q.or("username.ilike.%"+search+"%,display_name.ilike.%"+search+"%");
    const {data,error,count}=await q;if(error)throw error;
    const users=await Promise.all((data??[]).map(async(p:any)=>({...p,auth:await authInfo(p.id)})));
@@ -91,36 +91,103 @@ Deno.serve(async(req:Request)=>{
   if(action==="user_detail"){
    const target=clean(input.userId,80);if(!target)return out({error:"User ID লাগবে।"},400,origin);
    const [pr,au,mem]=await Promise.all([
-    admin.from("profiles").select("id,username,display_name,avatar_url,created_at,updated_at,last_seen,is_online,is_banned,ban_reason,banned_at,banned_by").eq("id",target).maybeSingle(),
+    admin.from("profiles").select("id,username,display_name,avatar_url,about,created_at,updated_at,last_seen,is_online,is_banned,ban_reason,banned_at,banned_by").eq("id",target).maybeSingle(),
     authInfo(target),
     admin.from("conversation_members").select("conversation_id,user_id,joined_at,last_read_at").eq("user_id",target)
    ]);
    if(pr.error)throw pr.error;if(mem.error)throw mem.error;if(!pr.data&&!au)return out({error:"User পাওয়া যায়নি।"},404,origin);
-   const cids=unique((mem.data??[]).map((x:any)=>x.conversation_id));let convs:any[]=[],members:any[]=[],msgs:any[]=[];
+   const cids=unique((mem.data??[]).map((x:any)=>x.conversation_id));let convs:any[]=[],members:any[]=[];
    if(cids.length){
-    const [c,m,msg]=await Promise.all([
+    const [c,m]=await Promise.all([
      admin.from("conversations").select("id,created_by,is_group,is_direct,title,created_at").in("id",cids).order("created_at",{ascending:false}),
-     admin.from("conversation_members").select("conversation_id,user_id,joined_at,last_read_at").in("conversation_id",cids),
-     admin.from("messages").select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at,deleted_by,delete_for_everyone,delivered_at,read_at,image_path,image_name,image_mime_type,image_size").in("conversation_id",cids).order("created_at",{ascending:false}).limit(2000)
+     admin.from("conversation_members").select("conversation_id,user_id,joined_at,last_read_at").in("conversation_id",cids)
     ]);
-    if(c.error)throw c.error;if(m.error)throw m.error;if(msg.error)throw msg.error;convs=c.data??[];members=m.data??[];msgs=msg.data??[];
+    if(c.error)throw c.error;if(m.error)throw m.error;convs=c.data??[];members=m.data??[];
    }
-   const ids=unique([...members.map((x:any)=>x.user_id),...msgs.map((x:any)=>x.sender_id)]);
-   const {data:related,error:re}=ids.length?await admin.from("profiles").select("id,username,display_name,is_online,is_banned").in("id",ids):{data:[],error:null};
+   const ids=unique(members.map((x:any)=>x.user_id));
+   const {data:related,error:re}=ids.length?await admin.from("profiles").select("id,username,display_name,avatar_url,about,is_online,is_banned,last_seen,created_at").in("id",ids):{data:[],error:null};
    if(re)throw re;const pmap=new Map((related??[]).map((p:any)=>[p.id,p]));
-   const mapped=convs.map((c:any)=>({...c,participants:members.filter((m:any)=>m.conversation_id===c.id).map((m:any)=>{const p:any=pmap.get(m.user_id)||{};return{user_id:m.user_id,username:p.username??null,display_name:p.display_name??"Unknown user",is_online:p.is_online??false,is_banned:p.is_banned??false,last_read_at:m.last_read_at}})}));
-   const paths=unique(msgs.filter((m:any)=>m.image_path&&!m.deleted_at&&!m.delete_for_everyone).map((m:any)=>m.image_path));
-   if(paths.length){try{const {data:signed,error}=await admin.storage.from("chat-images").createSignedUrls(paths,300);if(!error&&signed){const smap=new Map(signed.map((x:any,i:number)=>[x.path||paths[i],x.signedUrl]));msgs=msgs.map((m:any)=>({...m,image_url:m.image_path?(smap.get(m.image_path)??null):null}))}}catch(e){console.warn("image signing",e)}}
+   const mapped=await Promise.all(convs.map(async(c:any)=>{
+    const [messageCount,lastMessage,reportRows]=await Promise.all([
+     countRows("messages",(q:any)=>q.eq("conversation_id",c.id)),
+     admin.from("messages").select("created_at,sender_id").eq("conversation_id",c.id).order("created_at",{ascending:false}).limit(1),
+     admin.from("message_reports").select("id,status,reason,created_at,reported_by").eq("conversation_id",c.id).order("created_at",{ascending:false}).limit(20)
+    ]);
+    if(lastMessage.error)throw lastMessage.error;if(reportRows.error)throw reportRows.error;
+    const participants=members.filter((m:any)=>m.conversation_id===c.id).map((m:any)=>{
+     const p:any=pmap.get(m.user_id)||{};
+     return{user_id:m.user_id,username:p.username??null,display_name:p.display_name??"Unknown user",avatar_url:p.avatar_url??null,about:p.about??"",is_online:p.is_online??false,is_banned:p.is_banned??false,last_seen:p.last_seen??null,created_at:p.created_at??null,last_read_at:m.last_read_at??null};
+    });
+    const reports=(reportRows.data??[]).map((r:any)=>({...r,active:r.status==="pending"||r.status==="in_review"}));
+    return{...c,participants,message_count:messageCount,last_message_at:lastMessage.data?.[0]?.created_at??null,last_sender_id:lastMessage.data?.[0]?.sender_id??null,reports};
+   }));
    const me=(mem.data??[]).find((m:any)=>m.user_id===target);
-   await audit("view_user_detail",target,{conversation_count:convs.length,messages_returned:msgs.length});
-   return out({ok:true,user:{...(pr.data??{id:target}),auth:au,last_read_at:me?.last_read_at??null},conversations:mapped,messages:msgs,messageLimit:2000},200,origin);
+   await audit("view_user_profile",target,{conversation_count:convs.length,transcript_loaded:false});
+   return out({ok:true,user:{...(pr.data??{id:target}),auth:au,last_read_at:me?.last_read_at??null},conversations:mapped,messageLimit:0},200,origin);
+  }
+  if(action==="message_reports"){
+   const status=clean(input.status,20);
+   let q=admin.from("message_reports").select("id,conversation_id,message_id,reported_by,reason,status,created_at,reviewed_at,reviewed_by,moderation_notes").order("created_at",{ascending:false}).limit(150);
+   if(status&&["pending","in_review","resolved","dismissed"].includes(status))q=q.eq("status",status);
+   const {data:reports,error}=await q;if(error)throw error;
+   const messageIds=unique((reports??[]).map((r:any)=>r.message_id));
+   const {data:messages,error:messageError}=messageIds.length?await admin.from("messages").select("id,conversation_id,sender_id,created_at,deleted_at,delete_for_everyone").in("id",messageIds):{data:[],error:null};
+   if(messageError)throw messageError;
+   const userIds=unique([...(reports??[]).map((r:any)=>r.reported_by),...(messages??[]).map((m:any)=>m.sender_id)]);
+   const {data:profiles,error:profileError}=userIds.length?await admin.from("profiles").select("id,username,display_name,avatar_url").in("id",userIds):{data:[],error:null};
+   if(profileError)throw profileError;
+   const pmap=new Map((profiles??[]).map((p:any)=>[p.id,p])),mmap=new Map((messages??[]).map((m:any)=>[m.id,m]));
+   const items=(reports??[]).map((r:any)=>{
+    const m:any=mmap.get(r.message_id)||{},reporter:any=pmap.get(r.reported_by)||{},sender:any=pmap.get(m.sender_id)||{};
+    return{...r,message_created_at:m.created_at??null,message_deleted:Boolean(m.deleted_at||m.delete_for_everyone),sender_id:m.sender_id??null,sender_name:sender.display_name||sender.username||"Unknown user",sender_avatar_url:sender.avatar_url??null,reporter_name:reporter.display_name||reporter.username||"Unknown user",reporter_username:reporter.username??null,reporter_avatar_url:reporter.avatar_url??null};
+   });
+   await audit("list_message_reports",null,{status:status||"all",returned:items.length});
+   return out({ok:true,reports:items},200,origin);
+  }
+  if(action==="conversation_messages"){
+   const reportId=clean(input.reportId,80),conversationId=clean(input.conversationId,80);
+   if(!reportId||!conversationId)return out({error:"Report ID ও conversation ID লাগবে।"},400,origin);
+   const {data:report,error:reportError}=await admin.from("message_reports").select("id,conversation_id,message_id,reported_by,reason,status,created_at,reviewed_at,reviewed_by,moderation_notes").eq("id",reportId).eq("conversation_id",conversationId).maybeSingle();
+   if(reportError)throw reportError;if(!report)return out({error:"এই কথোপকথনের অনুমোদিত report পাওয়া যায়নি।"},404,origin);
+   if(report.status==="dismissed")return out({error:"Dismiss করা report-এর transcript access বন্ধ আছে।"},403,origin);
+   const [convResult,membersResult,messagesResult]=await Promise.all([
+    admin.from("conversations").select("id,created_by,is_group,is_direct,title,created_at").eq("id",conversationId).maybeSingle(),
+    admin.from("conversation_members").select("conversation_id,user_id,joined_at,last_read_at").eq("conversation_id",conversationId),
+    admin.from("messages").select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at,deleted_by,delete_for_everyone,delivered_at,read_at,image_path,image_name,image_mime_type,image_size").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(2000)
+   ]);
+   if(convResult.error)throw convResult.error;if(membersResult.error)throw membersResult.error;if(messagesResult.error)throw messagesResult.error;
+   if(!convResult.data)return out({error:"কথোপকথন পাওয়া যায়নি।"},404,origin);
+   const members=membersResult.data??[];let messages=messagesResult.data??[];
+   const ids=unique([...members.map((m:any)=>m.user_id),...messages.map((m:any)=>m.sender_id)]);
+   const {data:profiles,error:profileError}=ids.length?await admin.from("profiles").select("id,username,display_name,avatar_url,about,is_online,is_banned,last_seen,created_at").in("id",ids):{data:[],error:null};
+   if(profileError)throw profileError;
+   const pmap=new Map((profiles??[]).map((p:any)=>[p.id,p]));
+   const participants=members.map((m:any)=>{const p:any=pmap.get(m.user_id)||{};return{user_id:m.user_id,username:p.username??null,display_name:p.display_name??"Unknown user",avatar_url:p.avatar_url??null,about:p.about??"",is_online:p.is_online??false,is_banned:p.is_banned??false,last_seen:p.last_seen??null,created_at:p.created_at??null,last_read_at:m.last_read_at??null}});
+   const paths=unique(messages.filter((m:any)=>m.image_path&&!m.deleted_at&&!m.delete_for_everyone).map((m:any)=>m.image_path));
+   if(paths.length){try{const {data:signed,error}=await admin.storage.from("chat-images").createSignedUrls(paths,300);if(!error&&signed){const smap=new Map(signed.map((x:any,i:number)=>[x.path||paths[i],x.signedUrl]));messages=messages.map((m:any)=>({...m,image_url:m.image_path?(smap.get(m.image_path)??null):null}))}}catch(e){console.warn("image signing",e)}}
+   messages=messages.map((m:any)=>{const p:any=pmap.get(m.sender_id)||{};return{...m,sender_name:p.display_name||p.username||"Unknown user",sender_username:p.username??null,sender_avatar_url:p.avatar_url??null}});
+   if(report.status==="pending"){const {error}=await admin.from("message_reports").update({status:"in_review",reviewed_by:caller.id,reviewed_at:new Date().toISOString()}).eq("id",reportId);if(error)throw error;report.status="in_review";}
+   await audit("view_reported_conversation",report.reported_by,{report_id:reportId,conversation_id:conversationId,message_count:messages.length});
+   return out({ok:true,report,conversation:{...convResult.data,participants},messages,messageLimit:2000},200,origin);
+  }
+  if(action==="message_report_status"){
+   const reportId=clean(input.reportId,80),status=clean(input.status,20),notes=clean(input.notes,1000);
+   if(!reportId||!["in_review","resolved","dismissed"].includes(status))return out({error:"Valid report ID ও status লাগবে।"},400,origin);
+   const {data:existing,error:existingError}=await admin.from("message_reports").select("id,reported_by,conversation_id,status").eq("id",reportId).maybeSingle();
+   if(existingError)throw existingError;if(!existing)return out({error:"Report পাওয়া যায়নি।"},404,origin);
+   const {data:updated,error}=await admin.from("message_reports").update({status,moderation_notes:notes||null,reviewed_by:caller.id,reviewed_at:new Date().toISOString()}).eq("id",reportId).select("id,status,moderation_notes,reviewed_by,reviewed_at").single();
+   if(error)throw error;
+   await audit("message_report_status",existing.reported_by,{report_id:reportId,conversation_id:existing.conversation_id,status,has_notes:Boolean(notes)});
+   return out({ok:true,report:updated},200,origin);
   }
   if(action==="ban_user"||action==="unban_user"){
    const target=clean(input.userId,80);if(!target)return out({error:"User ID লাগবে।"},400,origin);if(target===caller.id)return out({error:"নিজের Admin account ব্যান করা যাবে না।"},400,origin);
    const banned=action==="ban_user";
    const {data:p,error}=await admin.from("profiles").update({is_banned:banned,ban_reason:banned?(clean(input.reason,500)||"Admin decision"):null,banned_at:banned?new Date().toISOString():null,banned_by:banned?caller.id:null}).eq("id",target).select("id,is_banned,ban_reason,banned_at").maybeSingle();
    if(error)throw error;if(!p)return out({error:"User profile পাওয়া যায়নি।"},404,origin);
-   const {error:authError}=await admin.auth.admin.updateUserById(target,{ban_duration:banned?"876000h":"none"});if(authError)throw authError;
+   // Keep sign-in available on ban so the app can show the banner; account RLS blocks access while is_banned=true.
+   // On unban, also clear any legacy Auth-level ban set by older deployed versions.
+   if(!banned){const {error:authError}=await admin.auth.admin.updateUserById(target,{ban_duration:"none"});if(authError)throw authError;}
    await audit(action,target,{reason:banned?p.ban_reason:null});return out({ok:true,user:p},200,origin);
   }
   if(action==="audit_logs"){
@@ -135,9 +202,21 @@ Deno.serve(async(req:Request)=>{
   }
   if(action==="delete_user"){
    const target=clean(input.userId,80);if(!target)return out({error:"User ID লাগবে।"},400,origin);if(target===caller.id)return out({error:"নিজের Admin account মুছে ফেলা যাবে না।"},400,origin);
-   if(!await authInfo(target))return out({error:"Auth account পাওয়া যায়নি।"},404,origin);
-   await audit("delete_user_started",target,{warning:"All conversations and messages in those conversations are permanently removed."});
-   await admin.auth.admin.updateUserById(target,{ban_duration:"876000h"});
+   const deletedAuth=await authInfo(target);if(!deletedAuth)return out({error:"Auth account পাওয়া যায়নি।"},404,origin);
+   const {data:deletedProfile,error:deletedProfileError}=await admin.from("profiles").select("username,display_name").eq("id",target).maybeSingle();
+   if(deletedProfileError)throw deletedProfileError;
+   const usernameNorm=clean(deletedProfile?.username,30).toLowerCase()||null;
+   const emailNorm=clean(deletedAuth.email,320).toLowerCase()||null;
+   const tombstoneData={original_user_id:target,username:deletedProfile?.username??null,username_norm:usernameNorm,display_name:deletedProfile?.display_name??null,email:deletedAuth.email??null,email_norm:emailNorm,deleted_at:new Date().toISOString(),deleted_by:caller.id,deletion_reason:clean(input.reason,500)||"Deleted by admin"};
+   let existingTombstone:any=null;
+   const {data:byOriginal,error:originalError}=await admin.from("account_tombstones").select("id").eq("original_user_id",target).maybeSingle();
+   if(originalError)throw originalError;
+   existingTombstone=byOriginal;
+   if(!existingTombstone&&emailNorm){const {data,error}=await admin.from("account_tombstones").select("id").eq("email_norm",emailNorm).maybeSingle();if(error)throw error;existingTombstone=data;}
+   if(!existingTombstone&&usernameNorm){const {data,error}=await admin.from("account_tombstones").select("id").eq("username_norm",usernameNorm).maybeSingle();if(error)throw error;existingTombstone=data;}
+   if(existingTombstone){const {error}=await admin.from("account_tombstones").update(tombstoneData).eq("id",existingTombstone.id);if(error)throw error;}
+   else{const {error}=await admin.from("account_tombstones").insert(tombstoneData);if(error)throw error;}
+   await audit("delete_user_started",target,{warning:"Account identifiers are retained in a restricted tombstone so a deleted-account banner can be shown. Conversations and messages in those conversations are permanently removed."});
    const [mr,cr,own]=await Promise.all([
     admin.from("conversation_members").select("conversation_id").eq("user_id",target),
     admin.from("conversations").select("id").eq("created_by",target),
