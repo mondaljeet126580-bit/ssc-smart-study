@@ -4,20 +4,20 @@ This repository contains the separate admin console for the Study Chat / ChatLin
 
 ## Admin login
 
-The admin console now uses the same **Username + 6-digit PIN** authentication style as the ChatLink account system.
+The admin console uses **display name + username + password** authentication.
 
 - No Google login.
 - No Gmail login screen.
-- Admin login fields: username + 6-digit PIN.
+- Admin login fields: display name, username, and password. If your existing Admin password is a 6-digit PIN, enter that PIN in the Password field.
 - New account creation uses the existing `user-auth` Supabase Edge Function.
-- The PIN is handled by Supabase Auth as the password and is never stored as plaintext in GitHub.
+- The password/PIN is handled by Supabase Auth and is never stored as plaintext in GitHub.
 - The browser only receives the Supabase publishable key; the service-role key remains inside Supabase Edge Functions.
 - On page open, the console restores a saved Supabase session and verifies it with the server-side admin dashboard endpoint. If the session is still valid and the account is allowlisted, the dashboard opens directly; if there is no valid session, the Username + Password login screen appears.
 - The console shows a full-screen loading indicator while checking the saved session and preparing the first dashboard view. The first dashboard response is reused for rendering to avoid a duplicate dashboard request.
 
 ## Admin permission
 
-Authentication and admin permission are separate. A valid Username + PIN account does **not** automatically become an administrator.
+Authentication and admin permission are separate. A valid username/password account does **not** automatically become an administrator.
 
 The server-side `admin-console` Edge Function checks `public.admin_allowlist` before returning admin data or allowing moderation actions.
 
