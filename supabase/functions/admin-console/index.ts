@@ -81,7 +81,7 @@ Deno.serve(async(req:Request)=>{
   }
   if(action==="users"){
    const search=clean(input.search,100).replace(/[,%()]/g," "),page=Math.max(1,Math.min(5000,Number(input.page)||1)),perPage=Math.max(10,Math.min(50,Number(input.perPage)||25));
-   let q=admin.from("profiles").select("id,username,display_name,created_at,last_seen,is_online,is_banned,ban_reason,banned_at",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*perPage,page*perPage-1);
+   let q=admin.from("profiles").select("id,username,display_name,avatar_url,created_at,last_seen,is_online,is_banned,ban_reason,banned_at",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*perPage,page*perPage-1);
    if(search)q=q.or("username.ilike.%"+search+"%,display_name.ilike.%"+search+"%");
    const {data,error,count}=await q;if(error)throw error;
    const users=await Promise.all((data??[]).map(async(p:any)=>({...p,auth:await authInfo(p.id)})));
